@@ -6,6 +6,9 @@ set -e -x
 REPO_URL='https://github.com/yjshen/arrow-datafusion'
 BRANCH_NAME='agg_filter'
 
+REPO_URL=https://github.com/synnada-ai/arrow-datafusion.git
+BRANCH_NAME=feature/stream_groupby4
+
 TPCH_BENCHMARK_SF1_PARQUET="cargo run --release --bin tpch -- benchmark datafusion --iterations 5 --path /home/alamb/tpch_data/parquet_data_SF1 --format parquet"
 TPCH_BENCHMARK_SF1_MEM="cargo run --release --bin tpch -- benchmark datafusion --iterations 5 --path /home/alamb/tpch_data/parquet_data_SF1 --format parquet -m "
 
