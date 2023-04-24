@@ -9,16 +9,20 @@ BRANCH_NAME='agg_filter'
 REPO_URL=https://github.com/synnada-ai/arrow-datafusion.git
 BRANCH_NAME=feature/stream_groupby4
 
+NICE_BRANCH_NAME="$(urlencode ${BRANCH_NAME})"
+
+# Commands to run
 TPCH_BENCHMARK_SF1_PARQUET="cargo run --release --bin tpch -- benchmark datafusion --iterations 5 --path /home/alamb/tpch_data/parquet_data_SF1 --format parquet"
 TPCH_BENCHMARK_SF1_MEM="cargo run --release --bin tpch -- benchmark datafusion --iterations 5 --path /home/alamb/tpch_data/parquet_data_SF1 --format parquet -m "
 
-OUTDIR="/home/alamb/"`date  +%Y-%m-%d-%s`
+#OUTDIR="/home/alamb/benchmarking/$(date +%Y-%m-%d-%s)_${NICE_BRANCH_NAME}"
+OUTDIR="/home/alamb/benchmarking/${NICE_BRANCH_NAME}"
 #OUTDIR="/home/alamb/2023-04-10-TEST"
 
 OUT_TPCH_SF1_PARQUET_MAIN="${OUTDIR}/tpch_sf1_parquet_main.json"
 OUT_TPCH_SF1_MEM_MAIN="${OUTDIR}/tpch_sf1_parquet_mem.json"
-OUT_TPCH_SF1_PARQUET_BRANCH="${OUTDIR}/tpch_sf1_parquet_${BRANCH_NAME}.json"
-OUT_TPCH_SF1_MEM_BRANCH="${OUTDIR}/tpch_sf1_mem_${BRANCH_NAME}.json"
+OUT_TPCH_SF1_PARQUET_BRANCH="${OUTDIR}/tpch_sf1_parquet_branch.json"
+OUT_TPCH_SF1_MEM_BRANCH="${OUTDIR}/tpch_sf1_mem_branch.json"
 
 echo "Writing results to $OUTDIR"
 mkdir -p "${OUTDIR}"
