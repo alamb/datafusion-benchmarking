@@ -6,8 +6,11 @@ set -e -x
 REPO_URL='https://github.com/yjshen/arrow-datafusion'
 BRANCH_NAME='agg_filter'
 
-REPO_URL=https://github.com/synnada-ai/arrow-datafusion.git
-BRANCH_NAME=feature/stream_groupby4
+#REPO_URL=https://github.com/synnada-ai/arrow-datafusion.git
+#BRANCH_NAME=feature/stream_groupby4
+
+REPO_URL=https://github.com/comphead/arrow-datafusion.git
+BRANCH_NAME=optimize_row_hash
 
 NICE_BRANCH_NAME="$(urlencode ${BRANCH_NAME})"
 
@@ -20,7 +23,7 @@ OUTDIR="/home/alamb/benchmarking/${NICE_BRANCH_NAME}"
 #OUTDIR="/home/alamb/2023-04-10-TEST"
 
 OUT_TPCH_SF1_PARQUET_MAIN="${OUTDIR}/tpch_sf1_parquet_main.json"
-OUT_TPCH_SF1_MEM_MAIN="${OUTDIR}/tpch_sf1_parquet_mem.json"
+OUT_TPCH_SF1_MEM_MAIN="${OUTDIR}/tpch_sf1_mem_main.json"
 OUT_TPCH_SF1_PARQUET_BRANCH="${OUTDIR}/tpch_sf1_parquet_branch.json"
 OUT_TPCH_SF1_MEM_BRANCH="${OUTDIR}/tpch_sf1_mem_branch.json"
 
