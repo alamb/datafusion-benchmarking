@@ -6,11 +6,15 @@ set -e -x
 REPO_URL='https://github.com/yjshen/arrow-datafusion'
 BRANCH_NAME='agg_filter'
 
-#REPO_URL=https://github.com/synnada-ai/arrow-datafusion.git
-#BRANCH_NAME=feature/stream_groupby4
+REPO_URL=https://github.com/synnada-ai/arrow-datafusion.git
+BRANCH_NAME=feature/stream_groupby4
 
-REPO_URL=https://github.com/comphead/arrow-datafusion.git
-BRANCH_NAME=optimize_row_hash
+#REPO_URL=https://github.com/comphead/arrow-datafusion.git
+#BRANCH_NAME=optimize_row_hash
+
+#REPO_URL=https://github.com/alamb/arrow-datafusion.git
+#BRANCH_NAME=alamb-main
+
 
 NICE_BRANCH_NAME="$(urlencode ${BRANCH_NAME})"
 
