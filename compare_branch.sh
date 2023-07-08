@@ -10,8 +10,8 @@ set -e -x
 # setup python environment
 source ~/venv/bin/activate
 
-REPO_URL='https://github.com/tustvold/arrow-datafusion.git'
-BRANCH_NAME='simplify-sort'
+REPO_URL='https://github.com/alamb/arrow-datafusion.git'
+BRANCH_NAME='alamb/sliding_sum'
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --profile release-nonlto"
@@ -33,6 +33,7 @@ git checkout "${BRANCH_NAME}"
 # start compiling the branch (in the background)
 cd benchmarks
 ${CARGO_COMMAND} --bin tpch > build.log 2>&1 &
+${CARGO_COMMAND} --bin parquet > build.log 2>&1 &
 popd
 
 ######
@@ -45,6 +46,7 @@ git branch -D "main_base" || true # clean any old copy
 git checkout -b main_base "${MERGE_BASE}"
 cd benchmarks
 ${CARGO_COMMAND}  --bin tpch  > build.log 2>&1 &
+${CARGO_COMMAND}  --bin parquet  > build.log 2>&1 &
 popd
 
 echo "------------------"
@@ -62,15 +64,17 @@ pushd ~/arrow-datafusion
 cd benchmarks
 ./bench.sh data
 
-# TODO all tests
-
 ## Run against branch
 export DATAFUSION_DIR=~/arrow-datafusion2
+#./bench.sh run sort
 ./bench.sh run tpch
+./bench.sh run tpch_mem
 
 ## Run against main
 export DATAFUSION_DIR=~/arrow-datafusion3
+#./bench.sh run sort
 ./bench.sh run tpch
+./bench.sh run tpch_mem
 
 ## Compare
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_} # mind blowing syntax to replace / with _
