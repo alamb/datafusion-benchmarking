@@ -1,7 +1,7 @@
 set -e -x
 ##
 # This script runs the datafusion bench.sh script
-# against two branches using two different checkouts
+# against a branch and main
 # ~/arrow-datafusion: branch.sh comparison
 # ~/arrow-datafusion2: branch
 # ~/arrow-datafusion3: main
@@ -11,7 +11,7 @@ set -e -x
 source ~/venv/bin/activate
 
 REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-BRANCH_NAME='alamb/sliding_sum'
+BRANCH_NAME='alamb/faster_grouping'
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --profile release-nonlto"
