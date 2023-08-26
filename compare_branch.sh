@@ -10,8 +10,11 @@ set -e -x
 # setup python environment
 source ~/venv/bin/activate
 
-REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-BRANCH_NAME='alamb/faster_grouping'
+
+REPO_URL='https://github.com/kazuyukitanimura/arrow-datafusion.git'
+BRANCH_NAME='alamb/agg-spill-pr'
+
+
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --profile release-nonlto"
@@ -34,6 +37,7 @@ git checkout "${BRANCH_NAME}"
 cd benchmarks
 ${CARGO_COMMAND} --bin tpch > build.log 2>&1 &
 ${CARGO_COMMAND} --bin parquet > build.log 2>&1 &
+${CARGO_COMMAND} --bin dfbench > build.log 2>&1 &
 popd
 
 ######
@@ -66,15 +70,18 @@ cd benchmarks
 
 ## Run against branch
 export DATAFUSION_DIR=~/arrow-datafusion2
-#./bench.sh run sort
-./bench.sh run tpch
-./bench.sh run tpch_mem
+./bench.sh run sort
+#./bench.sh run tpch
+#./bench.sh run clickbench_1
+#./bench.sh run tpch_mem
 
 ## Run against main
 export DATAFUSION_DIR=~/arrow-datafusion3
-#./bench.sh run sort
-./bench.sh run tpch
-./bench.sh run tpch_mem
+./bench.sh run sort
+#./bench.sh run tpch
+#./bench.sh run clickbench_1
+#./bench.sh run tpch_mem
+
 
 ## Compare
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_} # mind blowing syntax to replace / with _
