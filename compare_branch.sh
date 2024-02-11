@@ -11,8 +11,15 @@ set -e -x
 source ~/venv/bin/activate
 
 
-REPO_URL='https://github.com/kazuyukitanimura/arrow-datafusion.git'
-BRANCH_NAME='alamb/agg-spill-pr'
+#REPO_URL='https://github.com/viirya/arrow-datafusion.git'
+#BRANCH_NAME='relex_sort_merge_join_keys'
+
+REPO_URL='https://github.com/alamb/arrow-datafusion.git'
+BRANCH_NAME='alamb/specialized_group_keys'
+
+#REPO_URL='https://github.com/asimsedhain/arrow-datafusion.git'
+#BRANCH_NAME='df-mem-pool/6934/debug-dump-memory-pool'
+
 
 
 
@@ -70,17 +77,21 @@ cd benchmarks
 
 ## Run against branch
 export DATAFUSION_DIR=~/arrow-datafusion2
-./bench.sh run sort
+#./bench.sh run sort
 #./bench.sh run tpch
-#./bench.sh run clickbench_1
 #./bench.sh run tpch_mem
+./bench.sh run clickbench_1
+./bench.sh run clickbench_extended
+./bench.sh run tpch_mem
 
 ## Run against main
 export DATAFUSION_DIR=~/arrow-datafusion3
-./bench.sh run sort
+#./bench.sh run sort
 #./bench.sh run tpch
-#./bench.sh run clickbench_1
 #./bench.sh run tpch_mem
+./bench.sh run clickbench_1
+./bench.sh run clickbench_extended
+./bench.sh run tpch_mem
 
 
 ## Compare
