@@ -14,17 +14,33 @@ source ~/venv/bin/activate
 #REPO_URL='https://github.com/viirya/arrow-datafusion.git'
 #BRANCH_NAME='relex_sort_merge_join_keys'
 
-REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-BRANCH_NAME='alamb/specialized_group_keys'
+#REPO_URL='https://github.com/alamb/arrow-datafusion.git'
+#BRANCH_NAME='alamb/specialized_group_keys'
+
+#REPO_URL='https://github.com/alamb/arrow-datafusion.git'
+#BRANCH_NAME='alamb/specialized_group_keys_skip_overflow'
 
 #REPO_URL='https://github.com/asimsedhain/arrow-datafusion.git'
 #BRANCH_NAME='df-mem-pool/6934/debug-dump-memory-pool'
 
+#REPO_URL='https://github.com/Lordworms/arrow-datafusion.git'
+#BRANCH_NAME='issue_9328_2'
 
+#REPO_URL='https://github.com/alamb/datafusion.git'
+#BRANCH_NAME='alamb/vectorized_stats'
 
+#REPO_URL='https://github.com/alamb/datafusion.git'
+#BRANCH_NAME='alamb/less_allocation'
+
+#REPO_URL='https://github.com/coralogix/arrow-datafusion.git'
+#BRANCH_NAME='array_agg-groups-accumulator-v2'
+
+REPO_URL='https://github.com/jayzhan211/arrow-datafusion.git'
+BRANCH_NAME='multi-group-v3'
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --profile release-nonlto"
+#CARGO_COMMAND="cargo run --release"
 
 ######
 # Fetch and checkout the remote branch
@@ -42,9 +58,9 @@ git checkout "${BRANCH_NAME}"
 
 # start compiling the branch (in the background)
 cd benchmarks
-${CARGO_COMMAND} --bin tpch > build.log 2>&1 &
-${CARGO_COMMAND} --bin parquet > build.log 2>&1 &
-${CARGO_COMMAND} --bin dfbench > build.log 2>&1 &
+${CARGO_COMMAND} --bin tpch >> build.log 2>&1 &
+${CARGO_COMMAND} --bin parquet >> build.log 2>&1 &
+${CARGO_COMMAND} --bin dfbench >> build.log 2>&1 &
 popd
 
 ######
@@ -56,8 +72,9 @@ git checkout "${MERGE_BASE}"
 git branch -D "main_base" || true # clean any old copy
 git checkout -b main_base "${MERGE_BASE}"
 cd benchmarks
-${CARGO_COMMAND}  --bin tpch  > build.log 2>&1 &
-${CARGO_COMMAND}  --bin parquet  > build.log 2>&1 &
+${CARGO_COMMAND}  --bin tpch  >> build.log 2>&1 &
+${CARGO_COMMAND}  --bin parquet  >> build.log 2>&1 &
+${CARGO_COMMAND}  --bin dfbench  >> build.log 2>&1 &
 popd
 
 echo "------------------"
@@ -73,7 +90,7 @@ echo "DONE"
 pushd ~/arrow-datafusion
 ## Generate data
 cd benchmarks
-./bench.sh data
+#./bench.sh data
 
 ## Run against branch
 export DATAFUSION_DIR=~/arrow-datafusion2
@@ -81,8 +98,8 @@ export DATAFUSION_DIR=~/arrow-datafusion2
 #./bench.sh run tpch
 #./bench.sh run tpch_mem
 ./bench.sh run clickbench_1
-./bench.sh run clickbench_extended
-./bench.sh run tpch_mem
+#./bench.sh run clickbench_extended
+#./bench.sh run tpch_mem
 
 ## Run against main
 export DATAFUSION_DIR=~/arrow-datafusion3
@@ -90,8 +107,8 @@ export DATAFUSION_DIR=~/arrow-datafusion3
 #./bench.sh run tpch
 #./bench.sh run tpch_mem
 ./bench.sh run clickbench_1
-./bench.sh run clickbench_extended
-./bench.sh run tpch_mem
+#./bench.sh run clickbench_extended
+#./bench.sh run tpch_mem
 
 
 ## Compare

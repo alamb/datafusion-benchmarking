@@ -1,11 +1,14 @@
 set -x -e
+pushd ~/arrow-datafusion4/
+
 #git remote add wiedld https://github.com/wiedld/arrow-datafusion.git
 #git fetch -p wiedld
 #git remote add comphead https://github.com/comphead/arrow-datafusion.git
 #git fetch -p comphead
-git fetch -p alamb
 #git remote add Jefffrey https://github.com/Jefffrey/arrow-datafusion.git
 #git fetch -p Jefffrey
+git fetch -p apache
+git fetch -p alamb
 
 # remove old test runs
 rm -rf target/criterion/
@@ -20,9 +23,10 @@ rm -rf target/criterion/
 #git checkout alamb/optimizer_tree_node2
 #git reset --hard alamb/alamb/optimizer_tree_node2
 
-BRANCH_NAME="optimize_proj_pt1"
-git checkout alamb/optimize_proj_pt1
-git reset --hard alamb/alamb/optimize_proj_pt1
+
+BRANCH_NAME="optimize_pushdown"
+git checkout alamb/optimize_pushdown
+git reset --hard alamb/alamb/optimize_pushdown
 
 
 #BRANCH_NAME="refactor_create_initial_plan"
@@ -39,3 +43,5 @@ git checkout ${MERGE_BASE}
 cargo bench --bench sql_planner -- --save-baseline main
 
 critcmp main ${BRANCH_NAME}
+
+popd

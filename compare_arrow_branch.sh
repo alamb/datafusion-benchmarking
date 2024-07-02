@@ -1,7 +1,12 @@
 set -x -e
+pushd ~/arrow-rs
+
+
+
 #git  remote add korowa https://github.com/korowa/arrow-rs.git
 #git remote add apache https://github.com/apache/arrow-rs.git
 #git remote add XiangpengHao https://github.com/XiangpengHao/arrow-rs.git
+
 
 #BENCH_COMMAND="cargo bench --all-features --bench row_format"
 #BENCH_FILTER="convert_rows"
@@ -19,10 +24,17 @@ BRANCH_NAME="string-view-like"
 #REPO_NAME="XiangpengHao"
 #BRANCH_NAME="row-view"
 
-BENCH_COMMAND="cargo bench --bench arrow_reader --all-features"
-BENCH_FILTER="View"
-REPO_NAME="XiangpengHao"
-BRANCH_NAME="parquet-string-view-2"
+#BENCH_COMMAND="cargo bench --bench arrow_reader --all-features"
+#BENCH_FILTER="View/plain"
+#REPO_NAME="XiangpengHao"
+#BRANCH_NAME="parquet-string-view-2"
+
+#git remote add etseidl https://github.com/etseidl/arrow-rs.git
+git fetch -p etseidl
+BENCH_COMMAND="cargo bench --bench arrow_writer --all-features"
+BENCH_FILTER=""
+REPO_NAME="etseidl"
+BRANCH_NAME="size_stats"
 
 git fetch -p apache
 git fetch -p korowa
@@ -45,3 +57,5 @@ git checkout ${MERGE_BASE}
 $BENCH_COMMAND -- --save-baseline master  ${BENCH_FILTER}
 
 critcmp master ${BRANCH_NAME}
+
+popd
