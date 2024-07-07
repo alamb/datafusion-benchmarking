@@ -33,6 +33,7 @@ git reset --hard alamb/alamb/optimize_pushdown
 #git checkout refactor_create_initial_plan
 #git reset --hard Jefffrey/refactor_create_initial_plan
 
+cargo update
 
 cargo bench --bench sql_planner -- --save-baseline ${BRANCH_NAME}
 

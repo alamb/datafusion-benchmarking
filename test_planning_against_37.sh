@@ -2,6 +2,7 @@ set -x -e
 ## This script tests planning speed of 37.0.0 against the speed on planning on main
 git fetch -p apache
 git fetch -p alamb
+pushd ~/arrow-datafusion2
 
 # remove old test runs
 rm -rf target/criterion/

@@ -38,6 +38,9 @@ source ~/venv/bin/activate
 REPO_URL='https://github.com/jayzhan211/arrow-datafusion.git'
 BRANCH_NAME='multi-group-v3'
 
+REPO_URL='https://github.com/acking-you/arrow-datafusion.git'
+BRANCH_NAME='add_short_circuit'
+
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --profile release-nonlto"
 #CARGO_COMMAND="cargo run --release"
@@ -95,8 +98,8 @@ cd benchmarks
 ## Run against branch
 export DATAFUSION_DIR=~/arrow-datafusion2
 #./bench.sh run sort
-#./bench.sh run tpch
-#./bench.sh run tpch_mem
+./bench.sh run tpch
+./bench.sh run tpch_mem
 ./bench.sh run clickbench_1
 #./bench.sh run clickbench_extended
 #./bench.sh run tpch_mem
@@ -104,8 +107,8 @@ export DATAFUSION_DIR=~/arrow-datafusion2
 ## Run against main
 export DATAFUSION_DIR=~/arrow-datafusion3
 #./bench.sh run sort
-#./bench.sh run tpch
-#./bench.sh run tpch_mem
+./bench.sh run tpch
+./bench.sh run tpch_mem
 ./bench.sh run clickbench_1
 #./bench.sh run clickbench_extended
 #./bench.sh run tpch_mem
