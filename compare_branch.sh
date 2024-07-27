@@ -35,11 +35,14 @@ source ~/venv/bin/activate
 #REPO_URL='https://github.com/coralogix/arrow-datafusion.git'
 #BRANCH_NAME='array_agg-groups-accumulator-v2'
 
-REPO_URL='https://github.com/jayzhan211/arrow-datafusion.git'
-BRANCH_NAME='multi-group-v3'
+#REPO_URL='https://github.com/jayzhan211/arrow-datafusion.git'
+#BRANCH_NAME='multi-group-v3'
 
-REPO_URL='https://github.com/acking-you/arrow-datafusion.git'
-BRANCH_NAME='add_short_circuit'
+#REPO_URL='https://github.com/acking-you/arrow-datafusion.git'
+#BRANCH_NAME='add_short_circuit'
+
+REPO_URL='https://github.com/korowa/arrow-datafusion.git'
+BRANCH_NAME='skip-partial-aggregation'
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --profile release-nonlto"
@@ -101,7 +104,7 @@ export DATAFUSION_DIR=~/arrow-datafusion2
 ./bench.sh run tpch
 ./bench.sh run tpch_mem
 ./bench.sh run clickbench_1
-#./bench.sh run clickbench_extended
+./bench.sh run clickbench_extended
 #./bench.sh run tpch_mem
 
 ## Run against main
@@ -110,7 +113,7 @@ export DATAFUSION_DIR=~/arrow-datafusion3
 ./bench.sh run tpch
 ./bench.sh run tpch_mem
 ./bench.sh run clickbench_1
-#./bench.sh run clickbench_extended
+./bench.sh run clickbench_extended
 #./bench.sh run tpch_mem
 
 

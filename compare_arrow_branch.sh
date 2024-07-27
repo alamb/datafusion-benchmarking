@@ -30,15 +30,19 @@ BRANCH_NAME="string-view-like"
 #BRANCH_NAME="parquet-string-view-2"
 
 #git remote add etseidl https://github.com/etseidl/arrow-rs.git
-git fetch -p etseidl
-BENCH_COMMAND="cargo bench --bench arrow_writer --all-features"
-BENCH_FILTER=""
-REPO_NAME="etseidl"
-BRANCH_NAME="size_stats"
+#git fetch -p etseidl
+#BENCH_COMMAND="cargo bench --bench arrow_writer --all-features"
+#BENCH_FILTER=""
+#REPO_NAME="etseidl"
+#BRANCH_NAME="size_stats"
 
-git fetch -p apache
-git fetch -p korowa
-git fetch -p XiangpengHao
+
+#git remote add samuelcolvin https://github.com/samuelcolvin/arrow-rs.git
+git fetch -p samuelcolvin
+BENCH_COMMAND="-p arrow --bench comparison_kernels -F test_utils"
+BENCH_FILTER="like"
+REPO_NAME="samuelcolvin"
+BRANCH_NAME="size_stats"
 
 # remove old test runs
 rm -rf target/criterion/
