@@ -4,15 +4,14 @@ pushd ~/arrow-datafusion/
 # runs cargo bench on two branches in DataFusion
 
 
-
-#git remote add Rachelint https://github.com/Rachelint/arrow-datafusion.git
-git fetch -p Rachelint
-BENCH_COMMAND="cargo bench --bench parquet_statistic"
+BENCH_COMMAND="cargo bench --bench sql_planner"
 BENCH_FILTER=""
-REPO_NAME="Rachelint"
-BRANCH_NAME="improve-page-stats-convert"
+REPO_NAME="peter-toth"
+BRANCH_NAME="make-cse-top-down-like"
 
 
+git remote add ${REPO_NAME} https://github.com/${REPO_NAME}/arrow-datafusion.git || true # ignore exisitng remote error
+git fetch -p ${REPO_NAME}
 
 git fetch -p apache
 

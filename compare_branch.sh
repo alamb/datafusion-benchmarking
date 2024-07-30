@@ -41,12 +41,22 @@ source ~/venv/bin/activate
 #REPO_URL='https://github.com/acking-you/arrow-datafusion.git'
 #BRANCH_NAME='add_short_circuit'
 
-REPO_URL='https://github.com/korowa/arrow-datafusion.git'
-BRANCH_NAME='skip-partial-aggregation'
+#REPO_URL='https://github.com/korowa/arrow-datafusion.git'
+#BRANCH_NAME='skip-partial-aggregation'
+
+#REPO_URL='https://github.com/alamb/datafusion.git'
+#BRANCH_NAME='alamb/coalsece_batches_in_struct'
+
+
+REPO_URL='https://github.com/Rachelint/arrow-datafusion.git'
+BRANCH_NAME='check-hash-first'
+
+
 
 ## Command used to pre-warm (aka precompile) the directories
-CARGO_COMMAND="cargo run --profile release-nonlto"
-#CARGO_COMMAND="cargo run --release"
+#CARGO_COMMAND="cargo run --profile release-nonlto"
+CARGO_COMMAND="cargo run --release"
+
 
 ######
 # Fetch and checkout the remote branch
@@ -61,6 +71,7 @@ MERGE_BASE=`git merge-base apache/main ${BRANCH_NAME}`
 
 # Checkout branch code into arrow-datafusion3
 git checkout "${BRANCH_NAME}"
+cargo update
 
 # start compiling the branch (in the background)
 cd benchmarks
@@ -77,6 +88,7 @@ git fetch -p apache
 git checkout "${MERGE_BASE}"
 git branch -D "main_base" || true # clean any old copy
 git checkout -b main_base "${MERGE_BASE}"
+cargo update
 cd benchmarks
 ${CARGO_COMMAND}  --bin tpch  >> build.log 2>&1 &
 ${CARGO_COMMAND}  --bin parquet  >> build.log 2>&1 &
