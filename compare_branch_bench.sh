@@ -9,8 +9,34 @@ BENCH_FILTER=""
 REPO_NAME="peter-toth"
 BRANCH_NAME="make-cse-top-down-like"
 
+#BENCH_COMMAND="cargo bench --bench sql_planner"
+#BENCH_FILTER=""
+#REPO_NAME="crepererum"
+#BRANCH_NAME="crepererum/fix_collect_columns_o2"
 
-git remote add ${REPO_NAME} https://github.com/${REPO_NAME}/arrow-datafusion.git || true # ignore exisitng remote error
+BENCH_COMMAND="cargo bench --bench count"
+BENCH_FILTER=""
+REPO_NAME="alamb"
+BRANCH_NAME="alamb/refactor_filtering"
+
+BENCH_COMMAND="cargo bench --bench substr"
+BENCH_FILTER=""
+REPO_NAME="Kev1n8"
+BRANCH_NAME="stringview-output-for-substr"
+
+BENCH_COMMAND="cargo bench --bench regx"
+BENCH_FILTER=""
+REPO_NAME="devanbenz"
+BRANCH_NAME="fix/12150-regexprep-err-2"
+
+BENCH_COMMAND="cargo bench --bench ltrim"
+BENCH_FILTER=""
+REPO_NAME="Rachelint"
+BRANCH_NAME="string-view-trim"
+
+
+#git remote add ${REPO_NAME} https://github.com/${REPO_NAME}/arrow-datafusion.git || true # ignore exisitng remote error
+git remote add ${REPO_NAME} https://github.com/${REPO_NAME}/datafusion.git || true # ignore exisitng remote error
 git fetch -p ${REPO_NAME}
 
 git fetch -p apache
