@@ -35,17 +35,14 @@ BRANCH_NAME='alamb/boolean_string_groups'
 #BRANCH_NAME='single-mode-v4'
 
 
-#REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-#BRANCH_NAME='alamb/min_max_strings'
-
-#REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-#BRANCH_NAME='alamb/min_max_string_test'
-
 #REPO_URL='https://github.com/goldmedal/datafusion.git'
 #BRANCH_NAME='feature/12788-binary-as-string-opt'
 
 REPO_URL='https://github.com/alamb/arrow-datafusion.git'
 BRANCH_NAME='alamb/enable_string_view_by_default'
+
+#REPO_URL='https://github.com/peter-toth/datafusion.git'
+#BRANCH_NAME='extract-cse-logic'
 
 
 ## Command used to pre-warm (aka precompile) the directories
