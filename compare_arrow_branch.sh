@@ -22,15 +22,30 @@ BRANCH_NAME="filter_for_FixedSizeByteArray"
 #REPO_NAME="alamb"
 #BRANCH_NAME="fix-set-bits"
 
-BENCH_COMMAND="cargo bench -p arrow --bench comparison_kernels --all-features"
-BENCH_FILTER=""
-REPO_NAME="tlm365"
-BRANCH_NAME="regex-is-match-utf8"
+#BENCH_COMMAND="cargo bench -p arrow --bench comparison_kernels --all-features"
+#BENCH_FILTER=""
+#REPO_NAME="tlm365"
+#BRANCH_NAME="regex-is-match-utf8"
 
-BENCH_COMMAND="cargo bench --bench cast_kernels --all-features"
-BENCH_FILTER=""
-REPO_NAME="dariocurr"
-BRANCH_NAME="master"
+#BENCH_COMMAND="cargo bench --bench cast_kernels --all-features"
+#BENCH_FILTER=""
+#REPO_NAME="dariocurr"
+#BRANCH_NAME="master"
+
+BENCH_COMMAND="cargo bench -p arrow --bench comparison_kernels --all-features"
+BENCH_FILTER="like"
+REPO_NAME="findepi"
+BRANCH_NAME="findepi/fix-like-with-escapes-792c56"
+
+#BENCH_COMMAND="cargo bench --bench filter_kernels --all-features"
+#BENCH_FILTER="string"
+#REPO_NAME="Dandandan"
+#BRANCH_NAME="speedup_filter"
+
+#BENCH_COMMAND="cargo bench --bench filter_kernels --all-features"
+#BENCH_FILTER=""
+#REPO_NAME="delamarch3"
+#BRANCH_NAME="run-end-filter-safety"
 
 
 git remote add ${REPO_NAME} https://github.com/${REPO_NAME}/arrow-rs.git || true

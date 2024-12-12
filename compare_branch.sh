@@ -19,11 +19,11 @@ source ~/venv/bin/activate
 #BRANCH_NAME='alamb/improve_boolean_handling'
 
 
-REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-BRANCH_NAME='alamb/const_generics'
+#REPO_URL='https://github.com/alamb/arrow-datafusion.git'
+#BRANCH_NAME='alamb/const_generics'
 
-REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-BRANCH_NAME='alamb/boolean_string_groups'
+#REPO_URL='https://github.com/alamb/arrow-datafusion.git'
+#BRANCH_NAME='alamb/boolean_string_groups'
 
 #REPO_URL='https://github.com/jayzhan211/arrow-datafusion.git'
 #RANCH_NAME='rm-clone-v4'
@@ -38,16 +38,38 @@ BRANCH_NAME='alamb/boolean_string_groups'
 #REPO_URL='https://github.com/goldmedal/datafusion.git'
 #BRANCH_NAME='feature/12788-binary-as-string-opt'
 
-REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-BRANCH_NAME='alamb/enable_string_view_by_default'
+#REPO_URL='https://github.com/alamb/arrow-datafusion.git'
+#BRANCH_NAME='alamb/enable_string_view_by_default'
 
 #REPO_URL='https://github.com/peter-toth/datafusion.git'
 #BRANCH_NAME='extract-cse-logic'
+
+#REPO_URL='https://github.com/jayzhan211/arrow-datafusion.git'
+#BRANCH_NAME='rrt-spm-upstream'
 
 
 ## Command used to pre-warm (aka precompile) the directories
 #CARGO_COMMAND="cargo run --profile release-nonlto"
 CARGO_COMMAND="cargo run --release"
+
+#REPO_URL='https://github.com/Rachelint/arrow-datafusion.git'
+#BRANCH_NAME='vectorize-append-value'
+
+#REPO_URL='https://github.com/peter-toth/datafusion.git'
+#BRANCH_NAME='containers'
+
+#REPO_URL='https://github.com/peter-toth/datafusion.git'
+#BRANCH_NAME='containers'
+
+
+#REPO_URL='https://github.com/jonathanc-n/datafusion.git'
+#BRANCH_NAME='column'
+
+#REPO_URL='https://github.com/crepererum/arrow-datafusion.git'
+#BRANCH_NAME='crepererum/issue13256_b'
+
+REPO_URL='https://github.com/westonpace/arrow-datafusion.git'
+BRANCH_NAME='feat/async-catalog'
 
 
 
