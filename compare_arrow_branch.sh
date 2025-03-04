@@ -6,36 +6,11 @@ git fetch -p apache
 
 
 
-BENCH_COMMAND="cargo bench -p arrow --bench filter_kernels --all-features"
+#BENCH_COMMAND="cargo bench -p arrow --bench json_reader --all-features"
+BENCH_COMMAND="cargo bench --bench ipc_reader"
 BENCH_FILTER=""
-REPO_NAME="chloro-pn"
-BRANCH_NAME="filter_for_FixedSizeByteArray"
-
-
-#BENCH_COMMAND="cargo bench --bench arrow_reader --all-features"
-#BENCH_FILTER=""
-#REPO_NAME="etseidl"
-#BRANCH_NAME="to_prim"
-
-#BENCH_COMMAND="cargo bench --bench bit_mask --all-features"
-#BENCH_FILTER=""
-#REPO_NAME="alamb"
-#BRANCH_NAME="fix-set-bits"
-
-#BENCH_COMMAND="cargo bench -p arrow --bench comparison_kernels --all-features"
-#BENCH_FILTER=""
-#REPO_NAME="tlm365"
-#BRANCH_NAME="regex-is-match-utf8"
-
-#BENCH_COMMAND="cargo bench --bench cast_kernels --all-features"
-#BENCH_FILTER=""
-#REPO_NAME="dariocurr"
-#BRANCH_NAME="master"
-
-BENCH_COMMAND="cargo bench -p arrow --bench comparison_kernels --all-features"
-BENCH_FILTER="like"
-REPO_NAME="findepi"
-BRANCH_NAME="findepi/fix-like-with-escapes-792c56"
+REPO_NAME="alamb"
+BRANCH_NAME="alamb/ipc_disable_validation"
 
 #BENCH_COMMAND="cargo bench --bench filter_kernels --all-features"
 #BENCH_FILTER="string"
@@ -64,13 +39,13 @@ cargo update
 # Run on test branch
 $BENCH_COMMAND -- --save-baseline ${BRANCH_DISPLAY_NAME} ${BENCH_FILTER}
 
-# Run on master
-MERGE_BASE=$(git merge-base HEAD apache/master)
+# Run on main
+MERGE_BASE=$(git merge-base HEAD apache/main)
 echo "** Comparing to ${MERGE_BASE}"
 
 git checkout ${MERGE_BASE}
-$BENCH_COMMAND -- --save-baseline master  ${BENCH_FILTER}
+$BENCH_COMMAND -- --save-baseline main  ${BENCH_FILTER}
 
-critcmp master ${BRANCH_DISPLAY_NAME}
+critcmp main ${BRANCH_DISPLAY_NAME}
 
 popd
