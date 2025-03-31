@@ -10,14 +10,14 @@ set -e -x
 # setup python environment
 source ~/venv/bin/activate
 
-REPO1_URL='https://github.com/alamb/arrow-datafusion.git'
-BRANCH_NAME1='alamb/fast_gby_hash_pre'
+REPO1_URL='https://github.com/apache/datafusion.git'
+BRANCH_NAME1='branch-45'
 
-REPO2_URL='https://github.com/alamb/arrow-datafusion.git'
-BRANCH_NAME2='alamb/fast_gby_hash'
+REPO2_URL='https://github.com/apache/datafusion.git'
+BRANCH_NAME2='branch-46'
 
 ## Command used to pre-warm (aka precompile) the directories
-CARGO_COMMAND="cargo run --profile release-nonlto"
+CARGO_COMMAND="cargo run --release"
 
 ######
 # Fetch and checkout the remote branch
@@ -25,7 +25,7 @@ CARGO_COMMAND="cargo run --profile release-nonlto"
 pushd ~/arrow-datafusion2
 # Move to a known branch
 git branch -D alamb/temp || true
-git checkout -b alamb/teml
+git checkout -b alamb/temp
 git branch -D "${BRANCH_NAME1}" || true # clean any old copy
 git fetch --force "${REPO1_URL}" "${BRANCH_NAME1}:${BRANCH_NAME1}"
 
@@ -44,7 +44,7 @@ popd
 pushd ~/arrow-datafusion3
 # Move to a known branch
 git branch -D alamb/temp || true
-git checkout -b alamb/teml
+git checkout -b alamb/temp
 git branch -D "${BRANCH_NAME2}" || true # clean any old copy
 git fetch --force "${REPO2_URL}" "${BRANCH_NAME2}:${BRANCH_NAME2}"
 
@@ -70,19 +70,25 @@ echo "DONE"
 pushd ~/arrow-datafusion
 ## Generate data
 cd benchmarks
-./bench.sh data
+./bench.sh data clickbench_partitioned
+./bench.sh data clickbench_1
 
 ## Run against branch
 export DATAFUSION_DIR=~/arrow-datafusion2
 #./bench.sh run sort
-./bench.sh run tpch
-./bench.sh run tpch_mem
+#./bench.sh run tpch
+#./bench.sh run tpch_mem
+./bench.sh run clickbench_partitioned
+./bench.sh run clickbench_extended
+
 
 ## Run against main
 export DATAFUSION_DIR=~/arrow-datafusion3
 #./bench.sh run sort
-./bench.sh run tpch
-./bench.sh run tpch_mem
+#./bench.sh run tpch
+#./bench.sh run tpch_mem
+./bench.sh run clickbench_partitioned
+./bench.sh run clickbench_extended
 
 ## Compare
 BENCH_BRANCH_NAME1=${BRANCH_NAME1//\//_} # mind blowing syntax to replace / with _

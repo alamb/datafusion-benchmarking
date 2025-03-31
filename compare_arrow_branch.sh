@@ -7,21 +7,26 @@ git fetch -p apache
 
 
 #BENCH_COMMAND="cargo bench -p arrow --bench json_reader --all-features"
-BENCH_COMMAND="cargo bench --bench ipc_reader"
-BENCH_FILTER=""
+#BENCH_COMMAND="cargo bench --bench ipc_reader"
+BENCH_COMMAND="cargo bench --bench arrow_reader --features=arrow,test_common,experimental"
+BENCH_FILTER="StringViewArray"
 REPO_NAME="alamb"
-BRANCH_NAME="alamb/ipc_disable_validation"
+BRANCH_NAME="alamb/reserve_views"
 
-#BENCH_COMMAND="cargo bench --bench filter_kernels --all-features"
-#BENCH_FILTER="string"
-#REPO_NAME="Dandandan"
-#BRANCH_NAME="speedup_filter"
+#BENCH_COMMAND="cargo bench --bench json_writer --features=experimental,default"
+#BENCH_FILTER=""
+#REPO_NAME="adriangb"
+#BRANCH_NAME="arrow-union"
 
 #BENCH_COMMAND="cargo bench --bench filter_kernels --all-features"
 #BENCH_FILTER=""
 #REPO_NAME="delamarch3"
 #BRANCH_NAME="run-end-filter-safety"
 
+BENCH_COMMAND="cargo bench --bench arrow_writer --all-features"
+BENCH_FILTER=""
+REPO_NAME="jhorstmann"
+BRANCH_NAME="write-page-encoding-stats"
 
 git remote add ${REPO_NAME} https://github.com/${REPO_NAME}/arrow-rs.git || true
 

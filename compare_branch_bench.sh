@@ -4,10 +4,11 @@ pushd ~/arrow-datafusion/
 # runs cargo bench on two branches in DataFusion
 
 
-BENCH_COMMAND="cargo bench --bench sql_planner"
-BENCH_FILTER=""
-REPO_NAME="influxdata"
-BRANCH_NAME="wiedld/refactor-sort-pushdown"
+#BENCH_COMMAND="cargo bench --bench case_when "
+BENCH_COMMAND="cargo bench --bench sql_planner "
+BENCH_FILTER="all"
+REPO_NAME="Dandandan"
+BRANCH_NAME="remove_rules"
 
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_} # mind blowing syntax to replace / with _
 
@@ -21,7 +22,9 @@ git fetch -p apache
 # remove old test runs
 rm -rf target/criterion/
 
-git checkout $BRANCH_NAME --no-guess
+git reset --hard
+#git checkout $BRANCH_NAME --no-guess
+git checkout $BRANCH_NAME
 git reset --hard "$REPO_NAME/$BRANCH_NAME"
 cargo update
 
@@ -32,6 +35,7 @@ $BENCH_COMMAND -- --save-baseline ${BENCH_BRANCH_NAME} ${BENCH_FILTER}
 MERGE_BASE=$(git merge-base HEAD apache/main)
 echo "** Comparing to ${MERGE_BASE}"
 
+git reset --hard
 git checkout ${MERGE_BASE}
 cargo update
 $BENCH_COMMAND -- --save-baseline main  ${BENCH_FILTER}

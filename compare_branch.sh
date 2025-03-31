@@ -27,11 +27,17 @@ CARGO_COMMAND="cargo run --release"
 #REPO_URL='https://github.com/alamb/arrow-datafusion.git'
 #BRANCH_NAME='improve-performance-for-array-agg-merge-batch'
 
-REPO_URL='https://github.com/Rachelint/arrow-datafusion.git'
-BRANCH_NAME='impl-group-accumulator-for-median'
+#REPO_URL='https://github.com/Rachelint/arrow-datafusion.git'
+#BRANCH_NAME='impl-group-accumulator-for-median'
 
-REPO_URL='https://github.com/Kev1n8/datafusion.git'
-BRANCH_NAME='substr-always-output-utf8view'
+#REPO_URL='https://github.com/waynexia/arrow-datafusion.git'
+#BRANCH_NAME='count-distinct-group'
+
+#REPO_URL='https://github.com/pydantic/datafusion.git'
+#BRANCH_NAME='topk-filter'
+
+REPO_URL='https://github.com/ctsk/datafusion.git'
+BRANCH_NAME='coalesce-repart'
 
 
 
@@ -39,6 +45,7 @@ BRANCH_NAME='substr-always-output-utf8view'
 # Fetch and checkout the remote branch
 ######
 pushd ~/arrow-datafusion2
+git reset --hard
 git checkout main
 git branch -D "${BRANCH_NAME}" || true # clean any old copy
 
@@ -47,8 +54,9 @@ git fetch -p apache
 MERGE_BASE=`git merge-base apache/main ${BRANCH_NAME}`
 
 # Checkout branch code into arrow-datafusion3
+git reset --hard
 git checkout "${BRANCH_NAME}"
-cargo update
+#cargo update
 
 # start compiling the branch (in the background)
 cd benchmarks
@@ -62,6 +70,7 @@ popd
 ######
 pushd ~/arrow-datafusion3
 git fetch -p apache
+git reset --hard
 git checkout "${MERGE_BASE}"
 git branch -D "main_base" || true # clean any old copy
 git checkout -b main_base "${MERGE_BASE}"
@@ -90,11 +99,11 @@ cd benchmarks
 ## Run against branch
 export DATAFUSION_DIR=~/arrow-datafusion2
 #./bench.sh run sort
-./bench.sh run tpch
+#./bench.sh run tpch
 ./bench.sh run tpch_mem
 #./bench.sh run clickbench_1
-#./bench.sh run clickbench_extended
-#./bench.sh run clickbench_partitioned
+./bench.sh run clickbench_extended
+./bench.sh run clickbench_partitioned
 #./bench.sh run tpch_mem
 #./bench.sh run h2o_medium
 
@@ -102,11 +111,11 @@ export DATAFUSION_DIR=~/arrow-datafusion2
 ## Run against main
 export DATAFUSION_DIR=~/arrow-datafusion3
 #./bench.sh run sort
-./bench.sh run tpch
+#./bench.sh run tpch
 ./bench.sh run tpch_mem
 #./bench.sh run clickbench_1
-#./bench.sh run clickbench_extended
-#./bench.sh run clickbench_partitioned
+./bench.sh run clickbench_extended
+./bench.sh run clickbench_partitioned
 #./bench.sh run tpch_mem
 #./bench.sh run h2o_medium
 
