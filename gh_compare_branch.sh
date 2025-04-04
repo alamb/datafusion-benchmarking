@@ -1,7 +1,15 @@
 set -e -x
 ##
 # This script runs the datafusion bench.sh script
-# against a branch and main
+# Usage
+#
+# gh_compare_branch.sh <$PR_URL>
+# BENCHMARKS="clickbench_1 tpchmem" gh_compare_branch.sh <$PR_URL>
+#
+# Example
+# https://github.com/apache/datafusion/pull/15466
+#
+# Uses directories like this
 # ~/arrow-datafusion: branch.sh comparison
 # ~/arrow-datafusion2: branch
 # ~/arrow-datafusion3: main
@@ -16,11 +24,6 @@ set -e -x
 # setup python environment
 source ~/venv/bin/activate
 
-# Usage
-# gh_compare_branch.sh <$PR_URL>
-#
-# Example
-# https://github.com/apache/datafusion/pull/15466
 
 PR=$1
 if [ -z "$PR" ] ; then
@@ -28,15 +31,9 @@ if [ -z "$PR" ] ; then
 fi
 
 ## Benchmarks to run (bench.sh run <BENCHMARK>)
-BENCHMARKS="tpch_mem"
-#./bench.sh run sort
-#./bench.sh run tpch
-#./bench.sh run tpch_mem
-#./bench.sh run clickbench_1
-#./bench.sh run clickbench_extended
-#./bench.sh run clickbench_partitioned
-#./bench.sh run tpch_mem
-#./bench.sh run h2o_medium
+## Default suite is tpch and clickbench
+BENCHMARKS=${BENCHMARKS:-"tpch_mem clickbench_partitioned clickbench_extended"}
+
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --release"
@@ -79,10 +76,10 @@ popd
 # create comment saying the benchmarks are running
 rm -f /tmp/comment.txt
 cat >/tmp/comment.txt <<EOL
-$0 Benchmark Script Running
+\🤖 `$0\` [Benchmark Script](https://github.com/alamb/datafusion-benchmarking) Running
 `uname -a`
-Comparing $BRANCH_NAME to $MERGE_BASE
-Benchmarks: $BENCHMARKS
+Comparing $BRANCH_NAME to $MERGE_BASE using Benchmarks: $BENCHMARKS
+Results will be posted here when complete
 EOL
 # Post the comment to the ticket
 gh pr comment -F /tmp/comment.txt $PR
@@ -102,27 +99,45 @@ pushd ~/arrow-datafusion
 git checkout main
 git pull
 cd benchmarks
-#./bench.sh data
+
 # clear old results
 rm -rf results/*
 
 
 for bench in $BENCHMARKS ; do
-    ## Run against main
-    echo "** Running $bench baseline.. **"
+    echo "** Creating data if needed **"
+    ./bench.sh data $bench
+    echo "** Running $bench baseline (merge-base from main)... **"
     export DATAFUSION_DIR=~/arrow-datafusion3
     ./bench.sh run $bench
     ## Run against branch
-    echo "** Running $bench branch.. **"
+    echo "** Running $bench branch... **"
     export DATAFUSION_DIR=~/arrow-datafusion2
     ./bench.sh run $bench
 
 done
 
 ## Compare
-rm -f /tmp/comment.txt
+rm -f /tmp/report.txt
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_} # mind blowing syntax to replace / with _
+./bench.sh compare HEAD "${BENCH_BRANCH_NAME}" | tee -a /tmp/report.txt
 
-./bench.sh compare main_base "${BENCH_BRANCH_NAME}" | tee -a /tmp/comment.txt
-# Post the results comment to the ticket
+# Post the results as comment to the PR
+REPORT=$(cat /tmp/report.txt)
+cat >/tmp/comment.txt <<EOL
+🤖: Benchmark completed
+
+<details><summary>Details</summary>
+<p>
+
+
+\`\`\`
+$REPORT
+\`\`\`
+
+
+</p>
+</details>
+
+EOL
 gh pr comment -F /tmp/comment.txt $PR
