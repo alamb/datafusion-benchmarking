@@ -6,12 +6,6 @@ git fetch -p apache
 
 
 
-#BENCH_COMMAND="cargo bench -p arrow --bench json_reader --all-features"
-#BENCH_COMMAND="cargo bench --bench ipc_reader"
-BENCH_COMMAND="cargo bench --bench arrow_reader --features=arrow,test_common,experimental"
-BENCH_FILTER="StringViewArray"
-REPO_NAME="alamb"
-BRANCH_NAME="alamb/reserve_views"
 
 #BENCH_COMMAND="cargo bench --bench json_writer --features=experimental,default"
 #BENCH_FILTER=""
@@ -23,10 +17,15 @@ BRANCH_NAME="alamb/reserve_views"
 #REPO_NAME="delamarch3"
 #BRANCH_NAME="run-end-filter-safety"
 
-BENCH_COMMAND="cargo bench --bench arrow_writer --all-features"
+#BENCH_COMMAND="cargo bench --bench parse_decimal"
+#BENCH_FILTER=""
+#REPO_NAME="himadripal"
+#BRANCH_NAME="fix_parse_decimal_for_rounding_scale_zero"
+
+BENCH_COMMAND="cargo bench --bench concatenate_kernel"
 BENCH_FILTER=""
-REPO_NAME="jhorstmann"
-BRANCH_NAME="write-page-encoding-stats"
+REPO_NAME="rluvaton"
+BRANCH_NAME="add_append_array_builder"
 
 git remote add ${REPO_NAME} https://github.com/${REPO_NAME}/arrow-rs.git || true
 

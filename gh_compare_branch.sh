@@ -5,14 +5,26 @@ set -e -x
 # ~/arrow-datafusion: branch.sh comparison
 # ~/arrow-datafusion2: branch
 # ~/arrow-datafusion3: main
+#
+# And then reports the results to a pull request using the gh command line
+#
+# Install gh
+# https://github.com/cli/cli
+# https://github.com/cli/cli/releases/download/v2.69.0/gh_2.69.0_linux_amd64.deb
 ##
 
 # setup python environment
 source ~/venv/bin/activate
 
+# Usage
+# gh_compare_branch.sh <$PR_URL>
+#
+# Example
+# https://github.com/apache/datafusion/pull/15466
+
+
 
 ## Command used to pre-warm (aka precompile) the directories
-#CARGO_COMMAND="cargo run --profile release-nonlto"
 CARGO_COMMAND="cargo run --release"
 
 
