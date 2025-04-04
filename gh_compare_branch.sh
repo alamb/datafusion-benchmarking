@@ -22,83 +22,68 @@ source ~/venv/bin/activate
 # Example
 # https://github.com/apache/datafusion/pull/15466
 
+PR=$1
+if [ -z "$PR" ] ; then
+    echo "gh_compare_branch.sh <$PR_URL>"
+fi
 
+## Benchmarks to run (bench.sh run <BENCHMARK>)
+BENCHMARKS="tpch_mem"
+#./bench.sh run sort
+#./bench.sh run tpch
+#./bench.sh run tpch_mem
+#./bench.sh run clickbench_1
+#./bench.sh run clickbench_extended
+#./bench.sh run clickbench_partitioned
+#./bench.sh run tpch_mem
+#./bench.sh run h2o_medium
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --release"
 
-
-#REPO_URL='https://github.com/crepererum/arrow-datafusion.git'
-#BRANCH_NAME='crepererum/issue13256_b'
-
-#REPO_URL='https://github.com/westonpace/arrow-datafusion.git'
-#BRANCH_NAME='feat/async-catalog'
-
-#REPO_URL='https://github.com/alamb/arrow-datafusion.git'
-#BRANCH_NAME='improve-performance-for-array-agg-merge-batch'
-
-#REPO_URL='https://github.com/Rachelint/arrow-datafusion.git'
-#BRANCH_NAME='impl-group-accumulator-for-median'
-
-#REPO_URL='https://github.com/waynexia/arrow-datafusion.git'
-#BRANCH_NAME='count-distinct-group'
-
-#REPO_URL='https://github.com/pydantic/datafusion.git'
-#BRANCH_NAME='topk-filter'
-
-#REPO_URL='https://github.com/acking-you/arrow-datafusion.git'
-#BRANCH_NAME='add_short_circuit'
-
-
-REPO_URL='https://github.com/rluvaton/datafusion.git'
-BRANCH_NAME='remove-clone-in-merge-perf'
-
-
-#REPO_URL='https://github.com/alamb/datafusion.git'
-#BRANCH_NAME='alamb/filter_pushdown'
-#BRANCH_NAME='alamb/test_upgrade_54'
-
-
-
 ######
-# Fetch and checkout the remote branch
+# Fetch and checkout the remote branch in arrow-datafusion2
 ######
+
 pushd ~/arrow-datafusion2
 git reset --hard
-git checkout main
-git branch -D "${BRANCH_NAME}" || true # clean any old copy
-
-git fetch --force "${REPO_URL}" "${BRANCH_NAME}:${BRANCH_NAME}"
 git fetch -p apache
-MERGE_BASE=`git merge-base apache/main ${BRANCH_NAME}`
-
-# Checkout branch code into arrow-datafusion3
-git reset --hard
-git checkout "${BRANCH_NAME}"
-#cargo update
+gh pr checkout $PR
+MERGE_BASE=`git merge-base HEAD apache/main `
+BRANCH_NAME=`git rev-parse --abbrev-ref HEAD`
 
 # start compiling the branch (in the background)
 cd benchmarks
-${CARGO_COMMAND} --bin tpch >> build.log 2>&1 &
-${CARGO_COMMAND} --bin parquet >> build.log 2>&1 &
-${CARGO_COMMAND} --bin dfbench >> build.log 2>&1 &
+#${CARGO_COMMAND} --bin tpch >> build.log 2>&1 &
+#${CARGO_COMMAND} --bin parquet >> build.log 2>&1 &
+#${CARGO_COMMAND} --bin dfbench >> build.log 2>&1 &
 popd
+
 
 ######
 # checkout main corresponding to place the branch diverges (merge-base)
+# in arrow-datafusion3
 ######
+
 pushd ~/arrow-datafusion3
-git fetch -p apache
 git reset --hard
-git checkout "${MERGE_BASE}"
-git branch -D "main_base" || true # clean any old copy
-git checkout -b main_base "${MERGE_BASE}"
-cargo update
+git checkout $MERGE_BASE
+
 cd benchmarks
-${CARGO_COMMAND}  --bin tpch  >> build.log 2>&1 &
-${CARGO_COMMAND}  --bin parquet  >> build.log 2>&1 &
-${CARGO_COMMAND}  --bin dfbench  >> build.log 2>&1 &
+#${CARGO_COMMAND}  --bin tpch  >> build.log 2>&1 &
+#${CARGO_COMMAND}  --bin parquet  >> build.log 2>&1 &
+#${CARGO_COMMAND}  --bin dfbench  >> build.log 2>&1 &
 popd
+
+# create comment saying the benchmarks are running
+rm -f /tmp/comment.txt
+cat >/tmp/comment.txt <<EOL
+$0 Benchmark Script Running
+`uname -a`
+Comparing $BRANCH_NAME to $MERGE_BASE
+Benchmarks: $BENCHMARKS
+EOL
+gh pr comment -F /tmp/comment.txt $PR
 
 echo "------------------"
 echo "Wait for background pre-compilation to complete..."
@@ -106,37 +91,28 @@ echo "------------------"
 wait
 echo "DONE"
 
+exit 0
 
 ######
 # run the benchmark (from the arrow-datafusion directory
 ######
 pushd ~/arrow-datafusion
-## Generate data
+git checkout main
+git pull
 cd benchmarks
 #./bench.sh data
-
-## Run against branch
-export DATAFUSION_DIR=~/arrow-datafusion2
-#./bench.sh run sort
-#./bench.sh run tpch
-./bench.sh run tpch_mem
-./bench.sh run clickbench_1
-./bench.sh run clickbench_extended
-./bench.sh run clickbench_partitioned
-#./bench.sh run tpch_mem
-#./bench.sh run h2o_medium
+# clear old results
+rm -rf results/*
 
 
-## Run against main
-export DATAFUSION_DIR=~/arrow-datafusion3
-#./bench.sh run sort
-#./bench.sh run tpch
-./bench.sh run tpch_mem
-./bench.sh run clickbench_1
-./bench.sh run clickbench_extended
-./bench.sh run clickbench_partitioned
-#./bench.sh run tpch_mem
-#./bench.sh run h2o_medium
+for bench in $BENCHMARKS ; do
+    ## Run against main
+    echo "** Running $bench baseline.. **"
+    export DATAFUSION_DIR=~/arrow-datafusion3
+    ./bench.sh run $bench
+    ## Run against branch
+    echo "** Running $bench branch.. **"
+    echo "** Running branch $benchmark
 
 
 ## Compare
