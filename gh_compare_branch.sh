@@ -46,7 +46,8 @@ pushd ~/arrow-datafusion2
 git reset --hard
 git fetch -p apache
 gh pr checkout $PR
-MERGE_BASE=`git merge-base HEAD apache/main `
+MERGE_BASE=`git merge-base HEAD apache/main`
+BRANCH_BASE=`git rev-parse HEAD`
 BRANCH_NAME=`git rev-parse --abbrev-ref HEAD`
 
 # start compiling the branch (in the background)
@@ -78,7 +79,8 @@ rm -f /tmp/comment.txt
 cat >/tmp/comment.txt <<EOL
 🤖 \`$0\` [Benchmark Script](https://github.com/alamb/datafusion-benchmarking) Running
 `uname -a`
-Comparing $BRANCH_NAME to $MERGE_BASE using Benchmarks: $BENCHMARKS
+Comparing $BRANCH_NAME ($BRANCH_BASE) to $MERGE_BASE [diff](https://github.com/apache/datafusion/compare/$MERGE_BASE..$BRANCH_BASE)
+Benchmarks: $BENCHMARKS
 Results will be posted here when complete
 EOL
 # Post the comment to the ticket
@@ -89,7 +91,6 @@ echo "Wait for background pre-compilation to complete..."
 echo "------------------"
 wait
 echo "DONE"
-
 
 
 ######
