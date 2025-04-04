@@ -54,9 +54,9 @@ BRANCH_NAME=`git rev-parse --abbrev-ref HEAD`
 
 # start compiling the branch (in the background)
 cd benchmarks
-#${CARGO_COMMAND} --bin tpch >> build.log 2>&1 &
-#${CARGO_COMMAND} --bin parquet >> build.log 2>&1 &
-#${CARGO_COMMAND} --bin dfbench >> build.log 2>&1 &
+${CARGO_COMMAND} --bin tpch >> build.log 2>&1 &
+${CARGO_COMMAND} --bin parquet >> build.log 2>&1 &
+${CARGO_COMMAND} --bin dfbench >> build.log 2>&1 &
 popd
 
 
@@ -67,12 +67,13 @@ popd
 
 pushd ~/arrow-datafusion3
 git reset --hard
+git fetch -p apache
 git checkout $MERGE_BASE
 
 cd benchmarks
-#${CARGO_COMMAND}  --bin tpch  >> build.log 2>&1 &
-#${CARGO_COMMAND}  --bin parquet  >> build.log 2>&1 &
-#${CARGO_COMMAND}  --bin dfbench  >> build.log 2>&1 &
+${CARGO_COMMAND}  --bin tpch  >> build.log 2>&1 &
+${CARGO_COMMAND}  --bin parquet  >> build.log 2>&1 &
+${CARGO_COMMAND}  --bin dfbench  >> build.log 2>&1 &
 popd
 
 # create comment saying the benchmarks are running
@@ -83,6 +84,7 @@ $0 Benchmark Script Running
 Comparing $BRANCH_NAME to $MERGE_BASE
 Benchmarks: $BENCHMARKS
 EOL
+# Post the comment to the ticket
 gh pr comment -F /tmp/comment.txt $PR
 
 echo "------------------"
@@ -91,7 +93,7 @@ echo "------------------"
 wait
 echo "DONE"
 
-exit 0
+
 
 ######
 # run the benchmark (from the arrow-datafusion directory
@@ -112,9 +114,15 @@ for bench in $BENCHMARKS ; do
     ./bench.sh run $bench
     ## Run against branch
     echo "** Running $bench branch.. **"
-    echo "** Running branch $benchmark
+    export DATAFUSION_DIR=~/arrow-datafusion2
+    ./bench.sh run $bench
 
+done
 
 ## Compare
+rm -f /tmp/comment.txt
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_} # mind blowing syntax to replace / with _
-./bench.sh compare main_base "${BENCH_BRANCH_NAME}"
+
+./bench.sh compare main_base "${BENCH_BRANCH_NAME}" | tee -a /tmp/comment.txt
+# Post the results comment to the ticket
+gh pr comment -F /tmp/comment.txt $PR
