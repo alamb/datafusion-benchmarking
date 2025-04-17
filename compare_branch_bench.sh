@@ -7,8 +7,8 @@ pushd ~/arrow-datafusion/
 #BENCH_COMMAND="cargo bench --bench case_when "
 BENCH_COMMAND="cargo bench --bench sql_planner "
 BENCH_FILTER="all"
-REPO_NAME="Dandandan"
-BRANCH_NAME="remove_rules"
+REPO_NAME="Omega359"
+BRANCH_NAME="feature/scalar_func_args_session_config"
 
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_} # mind blowing syntax to replace / with _
 
