@@ -51,7 +51,7 @@ rm -f /tmp/comment.txt
 cat >/tmp/comment.txt <<EOL
 🤖 \`$0\` [Benchmark Script](https://github.com/alamb/datafusion-benchmarking/blob/main/gh_compare_arrow.sh) Running
 `uname -a`
-Comparing $BRANCH_NAME ($BRANCH_BASE) to $MERGE_BASE [diff](https://github.com/apache/datafusion/compare/$MERGE_BASE..$BRANCH_BASE)
+Comparing $BRANCH_NAME ($BRANCH_BASE) to $MERGE_BASE [diff](https://github.com/apache/arrow-rs/compare/$MERGE_BASE..$BRANCH_BASE)
 BENCH_NAME=$BENCH_NAME
 BENCH_COMMAND=$BENCH_COMMAND
 BENCH_FILTER=$BENCH_FILTER
@@ -65,14 +65,14 @@ gh pr comment -F /tmp/comment.txt $PR
 rm -rf target/criterion/
 
 # Run on test branch
-$BENCH_COMMAND -- --save-baseline ${BRANCH_DISPLAY_NAME} ${BENCH_FILTER}
+$BENCH_COMMAND -- --save-baseline ${BENCH_BRANCH_NAME} ${BENCH_FILTER}
 
 
 # Run on main (merge base)
 git reset --hard
 git clean -f -d
 git checkout $MERGE_BASE
-$BENCH_COMMAND -- --save-baseline main  ${BENCH_FILTER}
+$BENCH_COMMAND -- --save-baseline main ${BENCH_FILTER}
 
 ## Compare
 rm -f /tmp/report.txt
