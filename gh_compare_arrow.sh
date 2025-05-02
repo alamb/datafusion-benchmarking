@@ -39,7 +39,7 @@ pushd ~/arrow-rs
 git reset --hard
 git clean -f -d
 git fetch -p apache
-gh pr checkout $PR
+gh pr checkout -f $PR
 MERGE_BASE=`git merge-base HEAD apache/main`
 BRANCH_BASE=`git rev-parse HEAD`
 BRANCH_NAME=`git rev-parse --abbrev-ref HEAD`
