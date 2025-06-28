@@ -1,1 +1,6 @@
-jobs
+.idea/
+scripts/jobs
+tmp
+data
+datafusion
+builds
