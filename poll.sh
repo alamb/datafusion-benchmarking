@@ -14,7 +14,7 @@ while true ; do
         echo "Running job $job"
         bash "$job"
         echo "Renaming $job to $job.done"
-        mv "$job" "$job.done"
+        mv -f "$job" "$job.done"
     done
     sleep 1
 done;

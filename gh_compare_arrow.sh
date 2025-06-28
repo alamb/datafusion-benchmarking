@@ -29,7 +29,7 @@ fi
 # Benchmarks to run
 BENCH_NAME=${BENCH_NAME:-"concatenate_kernel"}
 BENCH_FILTER=${BENCH_FILTER:-""}
-BENCH_COMMAND="cargo bench --all-features --bench $BENCH_NAME "
+BENCH_COMMAND="cargo bench --features=arrow,async,test_common,experimental --bench $BENCH_NAME "
 
 ######
 # Fetch and checkout the remote branch in arrow-rs

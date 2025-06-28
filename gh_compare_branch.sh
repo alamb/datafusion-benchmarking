@@ -4,7 +4,7 @@ set -e -x
 # Usage
 #
 # gh_compare_branch.sh <$PR_URL>
-# BENCHMARKS="clickbench_1 tpchmem" gh_compare_branch.sh <$PR_URL>
+# BENCHMARKS="clickbench_1 tpch_mem" gh_compare_branch.sh <$PR_URL>
 #
 # Example
 # https://github.com/apache/datafusion/pull/15466
@@ -104,7 +104,8 @@ rm -rf results/*
 
 for bench in $BENCHMARKS ; do
     echo "** Creating data if needed **"
-    ./bench.sh data $bench
+    # Temp don't do this for cancellation benchmark
+    ./bench.sh data $bench || true
     echo "** Running $bench baseline (merge-base from main)... **"
     export DATAFUSION_DIR=~/arrow-datafusion3
     ./bench.sh run $bench
