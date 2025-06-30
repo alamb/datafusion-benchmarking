@@ -31,6 +31,7 @@ if [ -z "$DATAFUSION_DIR" ]; then
   DATAFUSION_DIR=datafusion
 fi
 
+
 mkdir -p builds
 echo "Building datafusion-cli in ${DATAFUSION_DIR} at rev: $REV"
 
@@ -40,8 +41,15 @@ git checkout $REV
 # figure out the commit timestamp from the git log
 REV_TIME=`git --no-pager log -1 --pretty='format:%cI' --date='format:%Y-%m-%dZ%H:%M:%S'`
 OUTPUT="builds/datafusion-cli@${REV}@${REV_TIME}"
+popd
 
-echo "Output will be saved to: \"${OUTPUT}\""
+# if the output file already exists, skip the build
+if [ -f "${OUTPUT}" ]; then
+  echo "Output file ${OUTPUT} already exists, skipping build."
+  exit 0
+fi
+
+pushd ${DATAFUSION_DIR} || exit 1
 cargo build --release --bin datafusion-cli
 popd
 cp -f "${DATAFUSION_DIR}"/target/release/datafusion-cli "${OUTPUT}"

@@ -23,7 +23,7 @@ set -x -e
 
 PR=$1
 if [ -z "$PR" ] ; then
-    echo "gh_compare_branch_bench.sh <$PR_URL>"
+    echo "$0 <$PR_URL>"
 fi
 
 # Benchmarks to run

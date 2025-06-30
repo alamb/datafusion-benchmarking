@@ -1,0 +1,7 @@
+[
+  {
+    "revision": "2d7ae0926",
+    "label": "default datafusion.execution.collect_statistics to true",
+    "PR": "https://github.com/apache/datafusion/pull/16447"
+  }
+]
