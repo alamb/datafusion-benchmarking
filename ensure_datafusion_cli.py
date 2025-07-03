@@ -64,7 +64,7 @@ def get_recent_commits(datafusion_dir, days):
         cmd = [
             'git', '--no-pager', 'log',
             f'--since={since_date}',
-            '--pretty=format:%H',  # Just the commit hash
+            '--pretty=format:%h',  # Just the commit hash
             '--reverse',  # Oldest first
             'origin/main'
         ]
