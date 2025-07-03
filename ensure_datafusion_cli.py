@@ -91,7 +91,7 @@ def setup_datafusion_checkout(checkout_dir, source_dir):
             return False
     return True
 
-def build_commit(commit_hash, datafusion_dir, thread_id):
+def build_commit(commit_hash, datafusion_dir, thread_id, num_jobs):
     """Build a specific commit using the build script."""
     print(f"[Thread {thread_id}] Building commit {commit_hash[:8]} in {datafusion_dir}")
 
@@ -99,6 +99,10 @@ def build_commit(commit_hash, datafusion_dir, thread_id):
         # Set environment variable for the datafusion directory
         env = os.environ.copy()
         env['DATAFUSION_DIR'] = datafusion_dir
+
+        # Set CARGO_BUILD_JOBS so this job only uses num_cores/num_builds cores
+        # so that we don't overload the system
+        env['CARGO_BUILD_JOBS'] = str(num_jobs)
 
         # Run the build script
         result = subprocess.run(
@@ -190,6 +194,17 @@ def main():
     successful_builds = 0
     failed_builds = 0
 
+    print("Starting builds...")
+    # use the number of cores to determine how many jobs to run in parallel
+    # so that we don't overload the system with more jobs than it can process
+    num_cores = os.cpu_count()
+    if num_cores is None:
+        num_cores = 1  # Fallback if unable to determine cores
+    import math
+    num_jobs = max(1, math.ceil(num_cores / args.num_builds))
+    print(f"Using {num_jobs} cargo jobs per build ({args.num_builds} parallel builds)")
+
+
     with ThreadPoolExecutor(max_workers=len(checkout_dirs)) as executor:
         # Submit build tasks
         future_to_commit = {}
@@ -199,7 +214,7 @@ def main():
             checkout_dir = checkout_dirs[checkout_index % len(checkout_dirs)]
             thread_id = checkout_index % len(checkout_dirs) + 1
 
-            future = executor.submit(build_commit, commit, checkout_dir, thread_id)
+            future = executor.submit(build_commit, commit, checkout_dir, thread_id, num_jobs)
             future_to_commit[future] = commit
             checkout_index += 1
 
