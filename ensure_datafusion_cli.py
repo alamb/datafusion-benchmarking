@@ -1,4 +1,4 @@
-    #!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 DataFusion CLI build script for ClickBench analysis
 
@@ -43,6 +43,21 @@ def get_recent_commits(datafusion_dir, days):
 
     # Calculate the date N days ago
     since_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    # first, call `git fetch origin main` to ensure we have the latest commits
+    print("Fetching latest commits from origin/main...")
+    try:
+        fetch_result = subprocess.run(
+            ['git', 'fetch', 'origin', 'main'],
+            cwd=datafusion_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print("Successfully fetched latest commits")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Failed to fetch from origin: {e}")
+        print("Continuing with existing local commits...")
 
     try:
         # Get commits from the last N days
