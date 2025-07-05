@@ -11,22 +11,32 @@ import os
 #
 # Arguments
 # --output-dir: Directory to write results
-# --git-revision: Git revision of the DataFusion repository (optional)
-# --git-revision-date: Date of the git revision (optional)
-# --datafusion-version: Version of DataFusion (optional)
-
+# --datafusion-binary: Path to the datafusion-cli binary
+#
+# Example usage:
+# python run_clickbench.py --output-dir results --datafusion-binary datafusion-cli-45.0.0
+#
+# Note:
+# if there are already results in the output directory for the specified datafusion-cli
+# binary, this script will exit without running the queries again.
 def main():
     parser = argparse.ArgumentParser(description="Run ClickBench queries with DataFusion.")
     parser.add_argument('--output-dir', help='Directory to write output files', default="results")
+    parser.add_argument('--datafusion-binary', help='Path to datafusion-cli binary', default='datafusion-cli')
     parser.add_argument('--git-revision', help='Git revision of the DataFusion repository')
     parser.add_argument('--git-revision-timestamp', help='Date of the git revision')
-    parser.add_argument('--datafusion-binary', help='Path to datafusion-cli binary', default='datafusion-cli')
     args = parser.parse_args()
 
     output_dir = args.output_dir
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     print(f"Output will be written to: {output_dir}")
+
+    # Check if results already exist for this datafusion binary
+    existing_file = check_existing_results(output_dir, args.datafusion_binary, args.git_revision)
+    if existing_file:
+        print(f"Results already found for {args.datafusion_binary} in {existing_file}")
+        return
 
     script_start_timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     results = []
@@ -96,7 +106,7 @@ def run_clickbench_query(query_name, args, script_start_timestamp):
 
         elapsed_time = end_time - start_time
 
-        # TODO: figure out a way to check for errors
+        # TODO: figure out a way to check for errors running the benchmark
         # if "Error" in result.stdout or "Error" in result.stderr:
         #     print("An error occurred during query execution.")
         #     print(result.stdout)
@@ -143,6 +153,36 @@ def run_clickbench_query(query_name, args, script_start_timestamp):
 
     except subprocess.CalledProcessError as e:
         print(f"Error executing query: {e.stderr}")
+
+
+# Check if results already exist for this datafusion binary
+# If the results exist, return the path to the existing results file    
+# Otherwise, return None
+def check_existing_results(output_dir, datafusion_binary, git_revision):
+    import csv
+    import glob
+
+    # Get all CSV files in the output directory
+    csv_files = glob.glob(os.path.join(output_dir, "*-results.csv"))
+
+    for csv_file in csv_files:
+        try:
+            with open(csv_file, 'r') as f:
+                reader = csv.DictReader(f)
+                # Read the first row to check the git_revision
+                first_row = next(reader, None)
+                if first_row:
+                    # Check if this file contains results for our git revision or binary
+                    if git_revision and first_row.get('git_revision') == git_revision:
+                        return os.path.basename(csv_file)
+                    # If no git revision provided, check if the binary path matches
+                    # We can't directly check binary path from CSV, so we'll be more conservative
+                    # and only match on git_revision if provided
+        except (IOError, csv.Error):
+            # Skip files that can't be read
+            continue
+
+    return None
 
 
 if __name__ == "__main__":

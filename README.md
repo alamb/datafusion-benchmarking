@@ -78,7 +78,7 @@ Build datafusion-cli for the desired version(s) of DataFusion using the `build_d
 
 ### Step 2: Run Benchmarks
 
-The  `./execute_benchmarks.py` script can be used to run benchmarks for `datafusion-cli` binaries in `builds`
+The  `./benchmark.py` script can be used to run benchmarks for `datafusion-cli` binaries in `builds`
 Results are left in the `results` directory, with each benchmark's results stored in a separate CSV file.
 
 ### Step 3: Analyze Results
