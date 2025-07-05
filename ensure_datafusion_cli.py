@@ -23,7 +23,7 @@ Usage:
     # uses directories datafusion, datafusion2, datafusion3, datafusion4, and
     # datafusion5 for the checkouts.
     python ensure_datafusion_cli.py --num-builds 5 --days 7
-    
+
     Here is an example of how to run this script printing status to a log file:
     PYTHONUNBUFFERED=1 nice python ensure_datafusion_cli.py > build.log 2>&1
 """
@@ -89,11 +89,33 @@ def setup_datafusion_checkout(checkout_dir, source_dir):
         except subprocess.CalledProcessError as e:
             print(f"Error creating checkout {checkout_dir}: {e}")
             return False
+        try:
+            # Add apache remote
+            subprocess.run(
+                ['git', 'remote', 'add', 'apache', 'https://github.com/apache/datafusion.git'],
+                cwd=checkout_dir,
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Error adding remote checkout {checkout_dir}: {e}")
+            return False
     return True
 
 def build_commit(commit_hash, datafusion_dir, thread_id, num_jobs):
     """Build a specific commit using the build script."""
     print(f"[Thread {thread_id}] Building commit {commit_hash[:8]} in {datafusion_dir}")
+
+    try:
+        # Add fetch latest commits
+        subprocess.run(
+            ['git', 'fetch', 'apache'],
+            cwd=datafusion_dir,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error fetching {datafusion_dir}: {e}")
+        return False
+
 
     try:
         # Set environment variable for the datafusion directory
@@ -139,7 +161,7 @@ def check_existing_builds():
 
 def main():
     parser = argparse.ArgumentParser(description='Build DataFusion CLI binaries for recent commits')
-    parser.add_argument('--num-builds', type=int, default=2,
+    parser.add_argument('--num-builds', type=int, default=4,
                         help='Number of parallel builds (default: 2)')
     parser.add_argument('--days', type=int, default=7,
                         help='Number of days to look back for commits (default: 7)')
@@ -174,10 +196,7 @@ def main():
     # Setup datafusion checkout directories
     checkout_dirs = []
     for i in range(args.num_builds):
-        if i == 0:
-            checkout_dir = args.datafusion_dir
-        else:
-            checkout_dir = f"{args.datafusion_dir}{i + 1}"
+        checkout_dir = f"{args.datafusion_dir}{i + 1}"
 
         if setup_datafusion_checkout(checkout_dir, args.datafusion_dir):
             checkout_dirs.append(checkout_dir)
