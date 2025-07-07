@@ -165,17 +165,18 @@ def check_existing_results(output_dir, datafusion_binary, git_revision):
     import glob
 
     # Get all CSV files in the output directory
-    csv_files = glob.glob(os.path.join(output_dir, "*-results.csv"))
+    csv_files = glob.glob(os.path.join(output_dir, "results.csv"))
 
     for csv_file in csv_files:
         try:
             with open(csv_file, 'r') as f:
                 reader = csv.DictReader(f)
-                # Read the first row to check the git_revision
-                first_row = next(reader, None)
-                if first_row:
+                # skip header
+                next(reader, None)
+                # check all existing rows for the git revision
+                for row in reader:
                     # Check if this file contains results for our git revision or binary
-                    if git_revision and first_row.get('git_revision') == git_revision:
+                    if git_revision and row.get('git_revision') == git_revision:
                         return os.path.basename(csv_file)
                     # If no git revision provided, check if the binary path matches
                     # We can't directly check binary path from CSV, so we'll be more conservative
