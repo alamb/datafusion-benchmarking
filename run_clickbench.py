@@ -48,16 +48,18 @@ def main():
         results.extend(run_clickbench_query(query, args, script_start_timestamp))
 
     # Now write the output to a csv file in the output directory using the csv module
-    output_file = os.path.join(output_dir, f'{script_start_timestamp}-results.csv')
+    output_file = os.path.join(output_dir, 'results.csv')
     print(f"Writing results to {output_file}")
-    with open(output_file, 'w') as f:
-        # write a header row using all keys from the first result
+    file_exists = os.path.isfile(output_file)
+    with open(output_file, 'a') as f:
+        # write a header row only if the file does not exist
         columns = results[0].keys()
-        f.write(','.join(columns))
-        f.write('\n')
+        if not file_exists:
+            f.write(','.join(columns))
+            f.write('\n')
         # write the results in the same order
-        for results in results:
-            f.write(','.join(str(results[col]) for col in columns))
+        for result in results:
+            f.write(','.join(str(result[col]) for col in columns))
             f.write('\n')
 
 # runs the specified ClickBench query using DataFusion
