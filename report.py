@@ -411,10 +411,14 @@ def generate_report(ctx, output_dir):
         }}
         
         function removeReleaseLines(chartObj) {{
-            // Create a copy with release lines and annotations removed
+            // Create a copy with release lines removed
             const newLayout = {{...chartObj.layout}};
-            newLayout.shapes = [];
-            newLayout.annotations = [];
+            newLayout.shapes = newLayout.shapes.filter(shape => 
+                shape.CUSTOM_ANNOTATION && shape.CUSTOM_ANNOTATION !== "release"
+            );
+            newLayout.annotations = newLayout.annotations.filter(ann => 
+                ann.CUSTOM_ANNOTATION && ann.CUSTOM_ANNOTATION !== "release"
+            );
             
             return {{
                 data: chartObj.data,
@@ -426,17 +430,11 @@ def generate_report(ctx, output_dir):
         function removeEventLines(chartObj) {{
             // Create a copy with event lines removed
             const newLayout = {{...chartObj.layout}};
-            // Filter out event lines (blue lines with dot dash style)
             newLayout.shapes = newLayout.shapes.filter(shape => 
-                !(shape.type === 'line' && 
-                  shape.line && 
-                  shape.line.dash === 'dot' &&
-                  shape.line.color === 'blue')
+                shape.CUSTOM_ANNOTATION && shape.CUSTOM_ANNOTATION !== "event"
             );
-            // Filter out event annotations (those that start with "Event:")
             newLayout.annotations = newLayout.annotations.filter(ann => 
-                !ann.text || 
-                !ann.text.startsWith('Event:')
+                ann.CUSTOM_ANNOTATION && ann.CUSTOM_ANNOTATION !== "event"
             );
             
             return {{
@@ -809,7 +807,8 @@ def create_performance_plotly_data(df, normalized=False):
                     "color": "red",
                     "width": 2,
                     "dash": "dash"
-                }
+                },
+                "CUSTOM_ANNOTATION": "release"
             })
 
             layout["annotations"].append({
@@ -822,7 +821,8 @@ def create_performance_plotly_data(df, normalized=False):
                 "yanchor": "bottom",
                 "font": {"color": "red", "size": 12},
                 "bgcolor": "rgba(255,255,255,0.7)",
-                "bordercolor": "red"
+                "bordercolor": "red",
+                "CUSTOM_ANNOTATION": "release"
             })
 
     # Add vertical lines and annotations for events (blue lines)
@@ -845,7 +845,8 @@ def create_performance_plotly_data(df, normalized=False):
                     "color": "blue",
                     "width": 2,
                     "dash": "dot"
-                }
+                },
+                "CUSTOM_ANNOTATION": "event"
             })
 
             layout["annotations"].append({
@@ -858,7 +859,8 @@ def create_performance_plotly_data(df, normalized=False):
                 "yanchor": "top",
                 "font": {"color": "blue", "size": 12},
                 "bgcolor": "rgba(255,255,255,0.7)",
-                "bordercolor": "blue"
+                "bordercolor": "blue",
+                "CUSTOM_ANNOTATION": "event"
             })
 
     config = {"responsive": True};
@@ -947,7 +949,8 @@ def create_queries_plotly_data(df):
                     "color": "red",
                     "width": 2,
                     "dash": "dash"
-                }
+                },
+                "CUSTOM_ANNOTATION": "release"
             })
 
             layout["annotations"].append({
@@ -960,7 +963,8 @@ def create_queries_plotly_data(df):
                 "yanchor": "bottom",
                 "font": {"color": "red", "size": 12},
                 "bgcolor": "rgba(255,255,255,0.7)",
-                "bordercolor": "red"
+                "bordercolor": "red",
+                "CUSTOM_ANNOTATION": "release"
             });
 
     # Add vertical lines and annotations for events (blue lines)
@@ -983,7 +987,8 @@ def create_queries_plotly_data(df):
                     "color": "blue",
                     "width": 2,
                     "dash": "dot"
-                }
+                },
+                "CUSTOM_ANNOTATION": "event"
             });
 
             layout["annotations"].append({
@@ -996,7 +1001,9 @@ def create_queries_plotly_data(df):
                 "yanchor": "top",
                 "font": {"color": "blue", "size": 12},
                 "bgcolor": "rgba(255,255,255,0.7)",
-                "bordercolor": "blue"
+                "bordercolor": "blue",
+                "CUSTOM_ANNOTATION": "event"
+
             })
 
     return {
