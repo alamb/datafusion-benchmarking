@@ -1,35 +1,43 @@
 [
   {
+    "revision": "branch-49",
+    "label": "49.0.0"
+  },
+  {
     "revision": "48.0.0",
-    "label": "DataFusion 48.0.0"
+    "label": "48.0.0"
+  },
+  {
+    "revision": "48.0.1",
+    "label": "48.0.1"
   },
   {
     "revision": "47.0.0",
-    "label": "DataFusion 47.0.0"
+    "label": "47.0.0"
   },
   {
     "revision": "46.0.0",
-    "label": "DataFusion 46.0.0"
+    "label": "46.0.0"
   },
   {
     "revision": "45.0.0",
-    "label": "DataFusion 45.0.0"
+    "label": "45.0.0"
   },
   {
     "revision": "44.0.0",
-    "label": "DataFusion 44.0.0"
+    "label": "44.0.0"
   },
   {
     "revision": "43.0.0",
-    "label": "DataFusion 43.0.0"
+    "label": "43.0.0"
   },
   {
     "revision": "42.0.0",
-    "label": "DataFusion 42.0.0"
+    "label": "42.0.0"
   },
   {
     "revision": "41.0.0",
-    "label": "DataFusion 41.0.0"
+    "label": "41.0.0"
   }
 
 ]
