@@ -102,6 +102,7 @@ pushd ~/arrow-datafusion
 ## Generate data
 cd benchmarks
 #./bench.sh data
+./bench.sh data tpch_10
 
 ## Run against branch
 export DATAFUSION_DIR=~/arrow-datafusion2
