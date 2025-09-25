@@ -37,6 +37,8 @@ echo "Building datafusion-cli in ${DATAFUSION_DIR} at rev: $REV"
 
 pushd "$DATAFUSION_DIR" || exit 1
 git stash
+git fetch -p apache || true
+git fetch -p origin || true
 git checkout $REV
 # figure out the commit timestamp from the git log
 REV_TIME=`git --no-pager log -1 --pretty='format:%cI' --date='format:%Y-%m-%dZ%H:%M:%S'`
