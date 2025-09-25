@@ -15,7 +15,7 @@ It is hugely inspired by Mike McCandless's https://benchmarks.mikemccandless.com
 
 ## Design Notes
 
-This is purposely not in the actual DataFusion repo so that it can be run   
+This is purposely not in the actual DataFusion repo so that it can be run
 against any DataFusion version, including the latest master branch and
 historical releases.
 
@@ -36,10 +36,8 @@ The directory structure is as follows:
 
 
 ## TODOs:
-(DONE) 1. Add events.json that annotates major PRs in the commit history
-2. Add both raw times and normalized times
-3. Automate parallel builds of multiple DataFusion versions
-4. Rerun benchmarks on a dedicated machine (ec2 metal?)
+1. Automate parallel builds of multiple DataFusion versions
+2. Rerun benchmarks on a dedicated machine (ec2 metal?)
 3. Rerun the benchmarks on a regular basis (cron job?)
 
 
@@ -72,9 +70,12 @@ Build datafusion-cli for the desired version(s) of DataFusion using the `build_d
    ```
 
    Example building datafusion-cli for version 48
-    ```rust
-    DATAFUSION_DIR=/home/alamb/arrow-datafusion2 ./build_datafusion_cli.sh 48.0.0 
-    ```
+   ```rust
+   DATAFUSION_DIR=/home/alamb/arrow-datafusion2 ./build_datafusion_cli.sh 48.0.0
+   ```
+
+Note the `build-releases.sh` script builds the releases used for DataFusion blogs
+such as [this one](https://datafusion.apache.org/blog/2025/07/28/datafusion-49.0.0/)
 
 ### Step 2: Run Benchmarks
 
@@ -134,12 +135,12 @@ cd ..
 ```
 Now use sql to find the first commit of each day:
 ```
-SELECT revision, day, time 
+SELECT revision, day, time
 FROM (
-  SELECT revision, day, time, first_value(revision) OVER (PARTITION BY day ORDER BY time DESC) as first_rev, url 
+  SELECT revision, day, time, first_value(revision) OVER (PARTITION BY day ORDER BY time DESC) as first_rev, url
   FROM (select *, date_bin('1 day', time) as day from 'commits.csv')
-) 
-WHERE first_rev = revision 
+)
+WHERE first_rev = revision
 ORDER by time DESC;"
 ```
 
