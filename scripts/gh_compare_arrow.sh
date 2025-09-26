@@ -40,6 +40,7 @@ git reset --hard
 git clean -f -d
 git fetch -p apache
 gh pr checkout -f $PR
+git submodule update --init
 MERGE_BASE=`git merge-base HEAD apache/main`
 BRANCH_BASE=`git rev-parse HEAD`
 BRANCH_NAME=`git rev-parse --abbrev-ref HEAD`
