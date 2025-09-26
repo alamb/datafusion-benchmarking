@@ -1,7 +1,11 @@
 [
   {
-    "revision": "branch-49",
-    "label": "49.0.0"
+    "revision": "50.0.0",
+    "label": "50.0.0"
+  },
+  {
+    "revision": "49.0.2",
+    "label": "49.0.2"
   },
   {
     "revision": "48.0.0",
