@@ -51,6 +51,7 @@ if [ -f "${OUTPUT}" ]; then
   exit 0
 fi
 
+echo "Creating ${OUTPUT}...."
 pushd ${DATAFUSION_DIR} || exit 1
 cargo build --release --bin datafusion-cli
 popd
