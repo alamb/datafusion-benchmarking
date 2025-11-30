@@ -44,6 +44,7 @@ CARGO_COMMAND="cargo run --release"
 
 pushd ~/arrow-datafusion2
 git reset --hard
+git clean -f -d
 git fetch -p apache
 gh pr checkout -f $PR
 MERGE_BASE=`git merge-base HEAD apache/main`
@@ -63,6 +64,7 @@ popd
 
 pushd ~/arrow-datafusion3
 git reset --hard
+git clean -f -d
 git fetch -p apache
 git checkout $MERGE_BASE
 
@@ -93,6 +95,7 @@ echo "DONE"
 ######
 pushd ~/arrow-datafusion
 git reset --hard
+git clean -f -d
 git checkout main
 git pull
 cd benchmarks
