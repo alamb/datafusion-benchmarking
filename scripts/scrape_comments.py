@@ -28,6 +28,8 @@ from typing import Iterable, List, Mapping
 
 ALLOWED_USERS = {"alamb3", "Dandandan", "adriangb", "rluvaton"}
 ALLOWED_BENCHMARKS = {"tpch", "clickbench_partitioned", "clickbench_extended"}
+SCRIPT_MARKDOWN_LINK = "[scrape_comments.py](scripts/scrape_comments.py)"
+_issue_comment_cache: dict[str, list[str]] = {}
 
 REPO = os.environ.get("REPO", "apache/datafusion")
 # for some reason the API doesn't return really recent comments unless we give a bit of a buffer
@@ -83,6 +85,37 @@ def fetch_recent_review_comments(now: datetime) -> Iterable[Mapping]:
     return data
 
 
+def fetch_issue_comment_bodies(pr_number: str) -> List[str]:
+    if pr_number in _issue_comment_cache:
+        return _issue_comment_cache[pr_number]
+    print(f"Fetching existing issue comments for PR {pr_number}")
+    output = run_gh_api(
+        [
+            f"/repos/{REPO}/issues/{pr_number}/comments",
+            "-f",
+            f"per_page={PER_PAGE}",
+        ]
+    )
+    try:
+        data = loads(output)
+    except Exception as exc:
+        print(f"Failed to parse issue comments: {exc}", file=sys.stderr)
+        data = []
+    bodies: List[str] = []
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                body = item.get("body")
+                if isinstance(body, str):
+                    bodies.append(body)
+    _issue_comment_cache[pr_number] = bodies
+    return bodies
+
+
+def already_posted(pr_number: str, body: str) -> bool:
+    return body in fetch_issue_comment_bodies(pr_number)
+
+
 # Detects benchmark trigger in comment body.
 # Returns:
 # - "" for "run benchmarks"
@@ -125,13 +158,17 @@ def get_benchmark_script(pr_number: str, bench: str) -> str:
         return f"""./gh_compare_branch.sh {pr_url}"""
 
 
-def post_user_notice(pr_number: str, login: str) -> None:
+def post_user_notice(pr_number: str, login: str, comment_url: str) -> None:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
     allowed = ", ".join(sorted(ALLOWED_USERS))
     body = (
-        f"Hi @{login}, {SCRIPT_MARKDOWN_LINK} only responds to whitelisted users. "
+        f"Hi @{login}, thanks for the request ({comment_url}). "
+        f"{SCRIPT_MARKDOWN_LINK} only responds to whitelisted users. "
         f"Allowed users: {allowed}."
     )
+    if already_posted(pr_number, body):
+        print(f"Notice already posted for PR {pr_number}, skipping")
+        return
     print(f"Posting notice to {pr_url} for user @{login}")
     run_gh_api(
         [
@@ -142,15 +179,20 @@ def post_user_notice(pr_number: str, login: str) -> None:
             f"body={body}",
         ]
     )
+    fetch_issue_comment_bodies(pr_number).append(body)
 
 
-def post_supported_benchmarks(pr_number: str, login: str) -> None:
+def post_supported_benchmarks(pr_number: str, login: str, comment_url: str) -> None:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
     supported = ", ".join(sorted(ALLOWED_BENCHMARKS))
     body = (
-        f"Hi @{login}, {SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}. "
+        f"Hi @{login}, thanks for the request ({comment_url}). "
+        f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}. "
         "Please choose one of these with `run benchmark <name>`."
     )
+    if already_posted(pr_number, body):
+        print(f"Supported benchmarks notice already posted for PR {pr_number}, skipping")
+        return
     print(f"Posting supported benchmarks to {pr_url} for user @{login}")
     run_gh_api(
         [
@@ -161,6 +203,7 @@ def post_supported_benchmarks(pr_number: str, login: str) -> None:
             f"body={body}",
         ]
     )
+    fetch_issue_comment_bodies(pr_number).append(body)
 
 
 def process_comment(comment: Mapping, now: datetime) -> None:
@@ -184,12 +227,15 @@ def process_comment(comment: Mapping, now: datetime) -> None:
         print(f"  No benchmark trigger detected in {body}")
         if body.strip().lower().startswith("run benchmark"):
             print("  Comment starts with 'run benchmark' but benchmark is unsupported.")
-            post_supported_benchmarks(pr_number, login)
+            if login not in ALLOWED_USERS:
+                post_user_notice(pr_number, login, comment_url)
+            else:
+                post_supported_benchmarks(pr_number, login, comment_url)
         return
 
     if login not in ALLOWED_USERS:
         print(f"  User {login} not in allowed list")
-        post_user_notice(pr_number, login)
+        post_user_notice(pr_number, login, comment_url)
         return
     print("  Found comment from allowed user:", login)
 
