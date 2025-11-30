@@ -26,7 +26,7 @@ from shutil import which
 from typing import Iterable, List, Mapping
 
 
-ALLOWED_USERS = {"alamb3", "Dandandan", "adriangb", "rluvaton"}
+ALLOWED_USERS = {"alamb", "Dandandan", "adriangb", "rluvaton"}
 ALLOWED_BENCHMARKS = {"tpch", "clickbench_partitioned", "clickbench_extended"}
 SCRIPT_MARKDOWN_LINK = "[scrape_comments.py](scripts/scrape_comments.py)"
 _issue_comment_cache: dict[str, list[str]] = {}
@@ -91,6 +91,7 @@ def fetch_issue_comment_bodies(pr_number: str) -> List[str]:
     print(f"Fetching existing issue comments for PR {pr_number}")
     output = run_gh_api(
         [
+            "-XGET",
             f"/repos/{REPO}/issues/{pr_number}/comments",
             "-f",
             f"per_page={PER_PAGE}",
@@ -158,9 +159,14 @@ def get_benchmark_script(pr_number: str, bench: str) -> str:
         return f"""./gh_compare_branch.sh {pr_url}"""
 
 
+def allowed_users_markdown() -> str:
+    users = sorted(ALLOWED_USERS)
+    return ", ".join(f"[{u}](https://github.com/{u})" for u in users)
+
+
 def post_user_notice(pr_number: str, login: str, comment_url: str) -> None:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
-    allowed = ", ".join(sorted(ALLOWED_USERS))
+    allowed = allowed_users_markdown()
     body = (
         f"Hi @{login}, thanks for the request ({comment_url}). "
         f"{SCRIPT_MARKDOWN_LINK} only responds to whitelisted users. "
