@@ -27,7 +27,7 @@ from typing import Iterable, List, Mapping
 
 
 ALLOWED_USERS = {"alamb", "Dandandan", "adriangb", "rluvaton"}
-ALLOWED_BENCHMARKS = {"tpch", "clickbench_partitioned", "clickbench_extended"}
+ALLOWED_BENCHMARKS = {"tpch", "tpch10", "tpch_mem", "tpch_mem10", "clickbench_partitioned", "clickbench_extended", "clickbench_1", "clickbench_pushdown"}
 SCRIPT_MARKDOWN_LINK = "[scrape_comments.py](scripts/scrape_comments.py)"
 _issue_comment_cache: dict[str, list[str]] = {}
 
