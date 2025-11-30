@@ -32,7 +32,6 @@ SCRIPT_MARKDOWN_LINK = "[scrape_comments.py](scripts/scrape_comments.py)"
 _issue_comment_cache: dict[str, list[str]] = {}
 
 REPO = os.environ.get("REPO", "apache/datafusion")
-# for some reason the API doesn't return really recent comments unless we give a bit of a buffer
 TIME_WINDOW_SECONDS = 3600
 PER_PAGE = 100
 SCRIPT_MARKDOWN_LINK = "[`scrape_comments.py`](https://github.com/alamb/datafusion-benchmarking/blob/main/scripts/scrape_comments.py)"
@@ -88,7 +87,7 @@ def fetch_recent_review_comments(now: datetime) -> Iterable[Mapping]:
 def fetch_issue_comment_bodies(pr_number: str) -> List[str]:
     if pr_number in _issue_comment_cache:
         return _issue_comment_cache[pr_number]
-    print(f"Fetching existing issue comments for PR {pr_number}")
+    print(f"  Fetching existing issue comments for PR {pr_number}")
     output = run_gh_api(
         [
             "-XGET",
@@ -164,18 +163,36 @@ def allowed_users_markdown() -> str:
     return ", ".join(f"[{u}](https://github.com/{u})" for u in users)
 
 
+def post_acknowledge(pr_number: str, login: str, comment_url: str) -> None:
+    # Unused after reaction-based acknowledgements.
+    return
+
+
+def post_reaction(comment_id: str, content: str) -> None:
+    print(f"  Posting reaction '{content}' to comment {comment_id}")
+    run_gh_api(
+        [
+            f"/repos/{REPO}/issues/comments/{comment_id}/reactions",
+            "-X",
+            "POST",
+            "-f",
+            f"content={content}",
+        ]
+    )
+
+
 def post_user_notice(pr_number: str, login: str, comment_url: str) -> None:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
     allowed = allowed_users_markdown()
     body = (
-        f"Hi @{login}, thanks for the request ({comment_url}). "
+        f"🤖 Hi @{login}, thanks for the request ({comment_url}). "
         f"{SCRIPT_MARKDOWN_LINK} only responds to whitelisted users. "
         f"Allowed users: {allowed}."
     )
     if already_posted(pr_number, body):
-        print(f"Notice already posted for PR {pr_number}, skipping")
+        print(f"  Notice already posted for PR {pr_number}, skipping")
         return
-    print(f"Posting notice to {pr_url} for user @{login}")
+    print(f"  Posting notice to {pr_url} for user @{login}")
     run_gh_api(
         [
             f"/repos/{REPO}/issues/{pr_number}/comments",
@@ -192,14 +209,14 @@ def post_supported_benchmarks(pr_number: str, login: str, comment_url: str) -> N
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
     supported = ", ".join(sorted(ALLOWED_BENCHMARKS))
     body = (
-        f"Hi @{login}, thanks for the request ({comment_url}). "
+        f"🤖 Hi @{login}, thanks for the request ({comment_url}). "
         f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}. "
         "Please choose one of these with `run benchmark <name>`."
     )
     if already_posted(pr_number, body):
-        print(f"Supported benchmarks notice already posted for PR {pr_number}, skipping")
+        print(f"  Supported benchmarks notice already posted for PR {pr_number}, skipping")
         return
-    print(f"Posting supported benchmarks to {pr_url} for user @{login}")
+    print(f"  Posting supported benchmarks to {pr_url} for user @{login}")
     run_gh_api(
         [
             f"/repos/{REPO}/issues/{pr_number}/comments",
@@ -270,6 +287,9 @@ def process_comment(comment: Mapping, now: datetime) -> None:
         f.write(script_content)
         f.write("\n")
     print(f"  Scheduling benchmark run in {file_name}")
+    # React with a rocket to acknowledge the request.
+    if comment_id:
+        post_reaction(str(comment_id), "rocket")
 
 
 
