@@ -18,6 +18,7 @@ To run the "standard" benchmarks run
 run benchmarks
 ```
 
+The scraper script will post a 🚀 reaction to the comment to indicate it has been seen.
 
 
 
