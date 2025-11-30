@@ -4,13 +4,13 @@ Scrape fresh PR review comments on apache/datafusion for benchmark triggers usin
 GitHub API call.
 
 Behavior:
-1. Issues a single request to the PR review comments API (`/repos/{REPO}/pulls/comments`)
-   scoped to recent comments (via `since`) sorted by creation time.
+1. Gets recent PR comments via GitHub API
 2. Filters to allowed authors and trigger phrases:
    - "run benchmarks"
-   - "run benchmark <name>" where <name> is in ALLOWED_BENCHMARKS
-   - "help benchmarks"
-3. Prints tab-separated matches: PR URL, comment URL, user, benchmark.
+       - "run benchmark <name>" where <name> is in ALLOWED_BENCHMARKS
+3. For allowed users, schedules benchmark jobs; for non-allowed users posting a trigger,
+   replies on the PR explaining the whitelist. For any "run benchmark" request that does
+   not match a supported benchmark, replies with the supported benchmark list.
 Only comments created within the last TIME_WINDOW_SECONDS are processed.
 """
 
@@ -25,12 +25,15 @@ from json import loads
 from shutil import which
 from typing import Iterable, List, Mapping
 
+
+ALLOWED_USERS = {"alamb3", "Dandandan", "adriangb", "rluvaton"}
+ALLOWED_BENCHMARKS = {"tpch", "clickbench_partitioned", "clickbench_extended"}
+
 REPO = os.environ.get("REPO", "apache/datafusion")
 # for some reason the API doesn't return really recent comments unless we give a bit of a buffer
 TIME_WINDOW_SECONDS = 3600
 PER_PAGE = 100
-ALLOWED_USERS = {"alamb", "Dandandan", "adriangb", "rluvaton"}
-ALLOWED_BENCHMARKS = {"tpch", "clickbench_partitioned", "clickbench_extended"}
+SCRIPT_MARKDOWN_LINK = "[`scrape_comments.py`](https://github.com/alamb/datafusion-benchmarking/blob/main/scripts/scrape_comments.py)"
 
 
 def ensure_tool(name: str) -> None:
@@ -80,23 +83,26 @@ def fetch_recent_review_comments(now: datetime) -> Iterable[Mapping]:
     return data
 
 
+# Detects benchmark trigger in comment body.
+# Returns:
+# - "" for "run benchmarks"
+# - "<name>" for "run benchmark <name>" if <name> is in ALLOWED_BENCHMARKS
+# - None if no trigger detected
 def detect_benchmark(body: str) -> str | None:
-    patterns = [
-        (r"^\s*run\s+benchmarks\s*$", ""),
-        (r"^\s*help\s+benchmarks\s*$", ""),
-        (r"^\s*run\s+benchmark\s+([a-zA-Z0-9_]+)\s*$", None),
-    ]
-    for pattern, bench_value in patterns:
-        match = re.match(pattern, body, flags=re.IGNORECASE)
-        if not match:
-            continue
-        if bench_value is not None:
-            return bench_value
-        requested = match.group(1)
-        if requested in ALLOWED_BENCHMARKS:
-            return requested
-    return None
+    # check for "run benchmarks"
+    match = re.match(r"^\s*run\s+benchmarks\s*$", body, flags=re.IGNORECASE)
+    if match:
+        return ""
 
+    # check for "run benchmark <name>"
+    match = re.match(r"^\s*run\s+benchmark\s+([a-zA-Z0-9_]+)\s*$", body, flags=re.IGNORECASE)
+    if not match:
+        return None
+    requested = match.group(1)
+    if requested in ALLOWED_BENCHMARKS:
+        return requested
+
+    return None
 
 def pr_number_from_url(url: str) -> str:
     # URL format: https://api.github.com/repos/{owner}/{repo}/pulls/{number}
@@ -119,6 +125,44 @@ def get_benchmark_script(pr_number: str, bench: str) -> str:
         return f"""./gh_compare_branch.sh {pr_url}"""
 
 
+def post_user_notice(pr_number: str, login: str) -> None:
+    pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
+    allowed = ", ".join(sorted(ALLOWED_USERS))
+    body = (
+        f"Hi @{login}, {SCRIPT_MARKDOWN_LINK} only responds to whitelisted users. "
+        f"Allowed users: {allowed}."
+    )
+    print(f"Posting notice to {pr_url} for user @{login}")
+    run_gh_api(
+        [
+            f"/repos/{REPO}/issues/{pr_number}/comments",
+            "-X",
+            "POST",
+            "-f",
+            f"body={body}",
+        ]
+    )
+
+
+def post_supported_benchmarks(pr_number: str, login: str) -> None:
+    pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
+    supported = ", ".join(sorted(ALLOWED_BENCHMARKS))
+    body = (
+        f"Hi @{login}, {SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}. "
+        "Please choose one of these with `run benchmark <name>`."
+    )
+    print(f"Posting supported benchmarks to {pr_url} for user @{login}")
+    run_gh_api(
+        [
+            f"/repos/{REPO}/issues/{pr_number}/comments",
+            "-X",
+            "POST",
+            "-f",
+            f"body={body}",
+        ]
+    )
+
+
 def process_comment(comment: Mapping, now: datetime) -> None:
     #print(f"Processing comment: {comment}")
     body = comment.get("body") or ""
@@ -130,20 +174,24 @@ def process_comment(comment: Mapping, now: datetime) -> None:
 
     print(f"Processing comment {comment_id} by {login} at {created_at}")
 
-    if not login in ALLOWED_USERS:
-        print(f"  User {login} not in allowed list")
-        return
-    print("  Found comment from allowed user:", login)
-
-    bench = detect_benchmark(body)
-    if bench is None:
-        print(f"  No benchmark trigger detected in {body}")
-        return
-
     pr_number = pr_number_from_url(issue_url)
     if not pr_number:
         print(f"  Could not extract PR number from URL {issue_url}")
         return
+
+    bench = detect_benchmark(body)
+    if bench is None:
+        print(f"  No benchmark trigger detected in {body}")
+        if body.strip().lower().startswith("run benchmark"):
+            print("  Comment starts with 'run benchmark' but benchmark is unsupported.")
+            post_supported_benchmarks(pr_number, login)
+        return
+
+    if login not in ALLOWED_USERS:
+        print(f"  User {login} not in allowed list")
+        post_user_notice(pr_number, login)
+        return
+    print("  Found comment from allowed user:", login)
 
     # create a file to run the benchmark in jobs/<pr_number>_<id>.sh
     # if it doesn't already exist
