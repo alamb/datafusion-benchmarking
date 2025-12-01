@@ -28,6 +28,7 @@ from typing import Iterable, List, Mapping
 
 
 ALLOWED_USERS = {"alamb", "Dandandan", "adriangb", "rluvaton"}
+# Allowed bench.sh based benchmarks
 ALLOWED_BENCHMARKS = {
     "tpch",
     "tpch10",
@@ -37,6 +38,10 @@ ALLOWED_BENCHMARKS = {
     "clickbench_extended",
     "clickbench_1",
     "clickbench_pushdown",
+}
+# Allowed criterion-based (cargo bench) benchmarks
+ALLOWED_CRITERION_BENCHMARKS = {
+    "sql_planner"
 }
 SCRIPT_MARKDOWN_LINK = "[scrape_comments.py](scripts/scrape_comments.py)"
 _issue_comment_cache: dict[str, list[str]] = {}
@@ -145,7 +150,7 @@ def detect_benchmark(body: str) -> List[str] | None:
     if not names:
         return None
 
-    if all(name in ALLOWED_BENCHMARKS for name in names):
+    if all(name in ALLOWED_BENCHMARKS or name in ALLOWED_CRITERION_BENCHMARKS for name in names):
         return names
 
     return None
@@ -162,13 +167,19 @@ def pr_number_from_url(url: str) -> str:
 #   ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
 #
 # When benches is non-empty, emits one line per benchmark:
-#   BENCHMARKS="<bench>" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
+#   - If in ALLOWED_BENCHMARKS:
+#       BENCHMARKS="<bench>" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
+#   - If in ALLOWED_CRITERION_BENCHMARKS:
+#       BENCH_NAME="<bench>" ./gh_compare_branch_bench.sh https://github.com/apache/datafusion/pull/<pr_number>
 def get_benchmark_script(pr_number: str, benches: List[str]) -> str:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
     if benches:
         lines = []
         for bench in benches:
-            lines.append(f"""BENCHMARKS="{bench}" ./gh_compare_branch.sh {pr_url}""")
+            if bench in ALLOWED_CRITERION_BENCHMARKS:
+                lines.append(f"""BENCH_NAME="{bench}" ./gh_compare_branch_bench.sh {pr_url}""")
+            else:
+                lines.append(f"""BENCHMARKS="{bench}" ./gh_compare_branch.sh {pr_url}""")
         return "\n".join(lines)
     else:
         return f"""./gh_compare_branch.sh {pr_url}"""
@@ -225,16 +236,23 @@ def post_supported_benchmarks(
     pr_number: str, login: str, comment_url: str, requested: List[str] | None = None
 ) -> None:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
-    supported = ", ".join(sorted(ALLOWED_BENCHMARKS))
+    supported_standard = ", ".join(sorted(ALLOWED_BENCHMARKS))
+    supported_criterion = ", ".join(sorted(ALLOWED_CRITERION_BENCHMARKS))
     unsupported = ""
     if requested:
-        bad = [b for b in requested if b not in ALLOWED_BENCHMARKS]
+        bad = [
+            b
+            for b in requested
+            if b not in ALLOWED_BENCHMARKS and b not in ALLOWED_CRITERION_BENCHMARKS
+        ]
         if bad:
-            unsupported = f" Unsupported benchmarks: {', '.join(bad)}."
+            unsupported = f"\nUnsupported benchmarks: {', '.join(bad)}."
     body = (
         f"🤖 Hi @{login}, thanks for the request ({comment_url}).\n\n"
-        f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}.\n\n"
-        "Please choose one or more of these with `run benchmark <name>` or `run benchmarks <name1> <name2>...`\n\n"
+        f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks.\n"
+        f"- Standard: {supported_standard}\n"
+        f"- Criterion: {supported_criterion}\n\n"
+        "Please choose one or more of these with `run benchmark <name>` or `run benchmark <name1> <name2>...`"
         f"{unsupported}"
     )
     if already_posted(pr_number, comment_url):
