@@ -234,7 +234,7 @@ def post_supported_benchmarks(
     body = (
         f"🤖 Hi @{login}, thanks for the request ({comment_url}).\n\n"
         f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}.\n\n"
-        "Please choose one of these with `run benchmark <name>`."
+        "Please choose one or more of these with `run benchmark <name>` or `run benchmarks <name1> <name2>...`\n\n"
         f"{unsupported}"
     )
     if already_posted(pr_number, comment_url):
