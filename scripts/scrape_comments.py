@@ -334,7 +334,7 @@ def post_queue(pr_number: str, login: str, comment_url: str) -> None:
             job_name = os.path.basename(path)
             comment_link = comment if comment else "unknown"
             benches_str = benches if benches else "unknown"
-            lines.append(f"| `{job_name}` | {user} | {benches_str} | {comment_link} |")
+            lines.append(f"| `{job_name}` | {user} | {benches_str} | `{comment_link}` |")
 
     body = "\n".join(lines)
     print(f"  Posting queue to {pr_url} for user @{login}")
