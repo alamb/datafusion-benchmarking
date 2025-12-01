@@ -161,13 +161,15 @@ def pr_number_from_url(url: str) -> str:
 # When benches is empty, runs the default benchmark command without BENCHMARKS env:
 #   ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
 #
-# When benches is non-empty, runs:
-#   BENCHMARKS="<bench1> <bench2>" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
+# When benches is non-empty, emits one line per benchmark:
+#   BENCHMARKS="<bench>" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
 def get_benchmark_script(pr_number: str, benches: List[str]) -> str:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
     if benches:
-        bench_str = " ".join(benches)
-        return f"""BENCHMARKS="{bench_str}" ./gh_compare_branch.sh {pr_url}"""
+        lines = []
+        for bench in benches:
+            lines.append(f"""BENCHMARKS="{bench}" ./gh_compare_branch.sh {pr_url}""")
+        return "\n".join(lines)
     else:
         return f"""./gh_compare_branch.sh {pr_url}"""
 
@@ -219,13 +221,21 @@ def post_user_notice(pr_number: str, login: str, comment_url: str) -> None:
     fetch_issue_comment_bodies(pr_number).append(body)
 
 
-def post_supported_benchmarks(pr_number: str, login: str, comment_url: str) -> None:
+def post_supported_benchmarks(
+    pr_number: str, login: str, comment_url: str, requested: List[str] | None = None
+) -> None:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
     supported = ", ".join(sorted(ALLOWED_BENCHMARKS))
+    unsupported = ""
+    if requested:
+        bad = [b for b in requested if b not in ALLOWED_BENCHMARKS]
+        if bad:
+            unsupported = f" Unsupported benchmarks: {', '.join(bad)}."
     body = (
         f"🤖 Hi @{login}, thanks for the request ({comment_url}). "
         f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}. "
         "Please choose one of these with `run benchmark <name>`."
+        f"{unsupported}"
     )
     if already_posted(pr_number, body):
         print(f"  Supported benchmarks notice already posted for PR {pr_number}, skipping")
@@ -267,7 +277,8 @@ def process_comment(comment: Mapping, now: datetime) -> None:
             if login not in ALLOWED_USERS:
                 post_user_notice(pr_number, login, comment_url)
             else:
-                post_supported_benchmarks(pr_number, login, comment_url)
+                requested = [n for n in body.split()[2:] if n]
+                post_supported_benchmarks(pr_number, login, comment_url, requested)
         return
 
     if login not in ALLOWED_USERS:

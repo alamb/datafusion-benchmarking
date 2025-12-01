@@ -23,6 +23,12 @@ The scraper script will post a 🚀 reaction to the comment to indicate it has b
 whitelisted users and whitelisted benchmark names are honored; unsupported benchmark names
 receive a reply listing allowed options.
 
+When multiple benchmarks are requested, the job will emit one command per benchmark, e.g.:
+```
+BENCHMARKS="tpch" ./gh_compare_branch.sh <pr_url>
+BENCHMARKS="tpch_mem" ./gh_compare_branch.sh <pr_url>
+```
+
 
 
 # High level flow:
