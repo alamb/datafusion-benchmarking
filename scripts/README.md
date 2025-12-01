@@ -7,10 +7,11 @@ This directory contains[@alamb](https://github.com/alamb)'s scripts for benchmar
 
 Note these scripts only run benchmarks for whitelisted users and whitelisted jobs.
 
-To request a benchmark run on a PR, add a comment to the PR with the following format:
+To request a benchmark run on a PR, add a comment to the PR with one of these formats:
 
 ```
 run benchmark <benchmark_name>
+run benchmark <benchmark_one> <benchmark_two> ...
 ```
 
 To run the "standard" benchmarks run 
@@ -18,7 +19,9 @@ To run the "standard" benchmarks run
 run benchmarks
 ```
 
-The scraper script will post a 🚀 reaction to the comment to indicate it has been seen.
+The scraper script will post a 🚀 reaction to the comment to indicate it has been seen. Only
+whitelisted users and whitelisted benchmark names are honored; unsupported benchmark names
+receive a reply listing allowed options.
 
 
 

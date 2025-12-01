@@ -7,7 +7,8 @@ Behavior:
 1. Gets recent PR comments via GitHub API
 2. Filters to allowed authors and trigger phrases:
    - "run benchmarks"
-       - "run benchmark <name>" where <name> is in ALLOWED_BENCHMARKS
+   - "run benchmark <name>" where <name> is in ALLOWED_BENCHMARKS
+   - "run benchmark <name1> <name2> ..." where each name is in ALLOWED_BENCHMARKS
 3. For allowed users, schedules benchmark jobs; for non-allowed users posting a trigger,
    replies on the PR explaining the whitelist. For any "run benchmark" request that does
    not match a supported benchmark, replies with the supported benchmark list.
@@ -27,7 +28,16 @@ from typing import Iterable, List, Mapping
 
 
 ALLOWED_USERS = {"alamb", "Dandandan", "adriangb", "rluvaton"}
-ALLOWED_BENCHMARKS = {"tpch", "tpch10", "tpch_mem", "tpch_mem10", "clickbench_partitioned", "clickbench_extended", "clickbench_1", "clickbench_pushdown"}
+ALLOWED_BENCHMARKS = {
+    "tpch",
+    "tpch10",
+    "tpch_mem",
+    "tpch_mem10",
+    "clickbench_partitioned",
+    "clickbench_extended",
+    "clickbench_1",
+    "clickbench_pushdown",
+}
 SCRIPT_MARKDOWN_LINK = "[scrape_comments.py](scripts/scrape_comments.py)"
 _issue_comment_cache: dict[str, list[str]] = {}
 
@@ -118,22 +128,25 @@ def already_posted(pr_number: str, body: str) -> bool:
 
 # Detects benchmark trigger in comment body.
 # Returns:
-# - "" for "run benchmarks"
-# - "<name>" for "run benchmark <name>" if <name> is in ALLOWED_BENCHMARKS
-# - None if no trigger detected
-def detect_benchmark(body: str) -> str | None:
-    # check for "run benchmarks"
+# Returns list of benchmarks to run, or an empty list for the default "run benchmarks".
+# Returns None if no trigger detected, or if any requested benchmark is unsupported.
+def detect_benchmark(body: str) -> List[str] | None:
+    # check for "run benchmarks" (default set)
     match = re.match(r"^\s*run\s+benchmarks\s*$", body, flags=re.IGNORECASE)
     if match:
-        return ""
+        return []
 
-    # check for "run benchmark <name>"
-    match = re.match(r"^\s*run\s+benchmark\s+([a-zA-Z0-9_]+)\s*$", body, flags=re.IGNORECASE)
+    # check for "run benchmark <name...>"
+    match = re.match(r"^\s*run\s+benchmark\s+([a-zA-Z0-9_\s]+?)\s*$", body, flags=re.IGNORECASE)
     if not match:
         return None
-    requested = match.group(1)
-    if requested in ALLOWED_BENCHMARKS:
-        return requested
+
+    names = [n for n in match.group(1).split() if n]
+    if not names:
+        return None
+
+    if all(name in ALLOWED_BENCHMARKS for name in names):
+        return names
 
     return None
 
@@ -143,17 +156,18 @@ def pr_number_from_url(url: str) -> str:
     parts = url.rstrip("/").split("/")
     return parts[-1] if parts else ""
 
-# Returns the contents of a file with the benchmark command to run
+# Returns the contents of a file with the benchmark command to run.
 #
-# When bench is empty, runs this:
-# BENCHMARKS="tpch10" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
+# When benches is empty, runs the default benchmark command without BENCHMARKS env:
+#   ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
 #
-# when bench is not empty, such as "clickbench_partitioned", runs this:
-# BENCHMARKS="clickbench_partitioned" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
-def get_benchmark_script(pr_number: str, bench: str) -> str:
+# When benches is non-empty, runs:
+#   BENCHMARKS="<bench1> <bench2>" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
+def get_benchmark_script(pr_number: str, benches: List[str]) -> str:
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
-    if bench:
-        return f"""BENCHMARKS="{bench}" ./gh_compare_branch.sh {pr_url}"""
+    if benches:
+        bench_str = " ".join(benches)
+        return f"""BENCHMARKS="{bench_str}" ./gh_compare_branch.sh {pr_url}"""
     else:
         return f"""./gh_compare_branch.sh {pr_url}"""
 
@@ -245,8 +259,8 @@ def process_comment(comment: Mapping, now: datetime) -> None:
         print(f"  Could not extract PR number from URL {issue_url}")
         return
 
-    bench = detect_benchmark(body)
-    if bench is None:
+    benches = detect_benchmark(body)
+    if benches is None:
         print(f"  No benchmark trigger detected in {body}")
         if body.strip().lower().startswith("run benchmark"):
             print("  Comment starts with 'run benchmark' but benchmark is unsupported.")
@@ -260,7 +274,11 @@ def process_comment(comment: Mapping, now: datetime) -> None:
         print(f"  User {login} not in allowed list")
         post_user_notice(pr_number, login, comment_url)
         return
-    print("  Found comment from allowed user:", login)
+    print(f"  Found comment from allowed user: {login}")
+    if benches:
+        print(f"  Benchmarks requested: {' '.join(benches)}")
+    else:
+        print("  Benchmarks requested: default suite")
 
     # create a file to run the benchmark in jobs/<pr_number>_<id>.sh
     # if it doesn't already exist
@@ -274,7 +292,7 @@ def process_comment(comment: Mapping, now: datetime) -> None:
         print(f"  Job done file {done_file_name} already exists, skipping")
         return
 
-    script_content = get_benchmark_script(pr_number, bench)
+    script_content = get_benchmark_script(pr_number, benches)
     os.makedirs("jobs", exist_ok=True)
     pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
     with open(file_name, "w") as f:
