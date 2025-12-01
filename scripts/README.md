@@ -12,11 +12,8 @@ To request a benchmark run on a PR, add a comment to the PR with one of these fo
 ```
 run benchmark <benchmark_name>
 run benchmark <benchmark_one> <benchmark_two> ...
-```
-
-To run the "standard" benchmarks run 
-```
 run benchmarks
+show benchmark queue
 ```
 
 The scraper script will post a 🚀 reaction to the comment to indicate it has been seen. Only
@@ -27,7 +24,11 @@ When multiple benchmarks are requested, the job will emit one command per benchm
 ```
 BENCHMARKS="tpch" ./gh_compare_branch.sh <pr_url>
 BENCHMARKS="tpch_mem" ./gh_compare_branch.sh <pr_url>
+BENCH_NAME="sql_planner" ./gh_compare_branch_bench.sh <pr_url>
 ```
+
+`show benchmark queue` replies with a table of pending jobs (`jobs/*.sh`) including the job file,
+requesting user (if known), requested benchmarks, and the originating comment link.
 
 
 

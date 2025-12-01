@@ -5,10 +5,11 @@ GitHub API call.
 
 Behavior:
 1. Gets recent PR comments via GitHub API
-2. Filters to allowed authors and trigger phrases:
+2. Filters to trigger phrases:
    - "run benchmarks"
-   - "run benchmark <name>" where <name> is in ALLOWED_BENCHMARKS
-   - "run benchmark <name1> <name2> ..." where each name is in ALLOWED_BENCHMARKS
+   - "run benchmark <name>" where <name> is in ALLOWED_BENCHMARKS or ALLOWED_CRITERION_BENCHMARKS
+   - "run benchmark <name1> <name2> ..." where each name is in ALLOWED_BENCHMARKS/ALLOWED_CRITERION_BENCHMARKS
+   - "show benchmark queue" to list pending jobs
 3. For allowed users, schedules benchmark jobs; for non-allowed users posting a trigger,
    replies on the PR explaining the whitelist. For any "run benchmark" request that does
    not match a supported benchmark, replies with the supported benchmark list.
@@ -129,6 +130,47 @@ def fetch_issue_comment_bodies(pr_number: str) -> List[str]:
 
 def already_posted(pr_number: str, comment_url: str) -> bool:
     return any(comment_url in body for body in fetch_issue_comment_bodies(pr_number))
+
+
+def parse_job_metadata(path: str) -> tuple[str, str, str]:
+    """Return (user, benchmarks, comment_url) for a job file."""
+    user = "unknown"
+    comment = ""
+    benchmarks: list[str] = []
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("# User:"):
+                    user = line.split(":", 1)[1].strip() or user
+                elif line.startswith("# Comment:"):
+                    comment = line.split(":", 1)[1].strip()
+                elif "BENCHMARKS=" in line:
+                    m = re.search(r'BENCHMARKS="([^"]+)"', line)
+                    if m:
+                        benchmarks.extend(m.group(1).split())
+                elif "BENCH_NAME=" in line:
+                    m = re.search(r'BENCH_NAME="([^"]+)"', line)
+                    if m:
+                        benchmarks.append(m.group(1))
+    except FileNotFoundError:
+        return user, "", comment
+
+    benches = " ".join(benchmarks) if benchmarks else "default"
+    return user, benches, comment
+
+
+def list_job_files() -> list[str]:
+    jobs_dir = "jobs"
+    if not os.path.isdir(jobs_dir):
+        return []
+    return sorted(
+        [
+            os.path.join(jobs_dir, f)
+            for f in os.listdir(jobs_dir)
+            if f.endswith(".sh") and os.path.isfile(os.path.join(jobs_dir, f))
+        ]
+    )
 
 
 # Detects benchmark trigger in comment body.
@@ -271,6 +313,43 @@ def post_supported_benchmarks(
     fetch_issue_comment_bodies(pr_number).append(body)
 
 
+def post_queue(pr_number: str, login: str, comment_url: str) -> None:
+    pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
+    if already_posted(pr_number, comment_url):
+        print(f"  Queue response already posted for PR {pr_number}, skipping")
+        return
+
+    job_files = list_job_files()
+    lines: list[str] = [
+        f"🤖 Hi @{login}, you asked to view the benchmark queue ({comment_url}).",
+        "",
+    ]
+    if not job_files:
+        lines.append("No pending jobs in `jobs/`.")
+    else:
+        lines.append("| Job | User | Benchmarks | Comment |")
+        lines.append("| --- | --- | --- | --- |")
+        for path in job_files:
+            user, benches, comment = parse_job_metadata(path)
+            job_name = os.path.basename(path)
+            comment_link = comment if comment else "unknown"
+            benches_str = benches if benches else "unknown"
+            lines.append(f"| `{job_name}` | {user} | {benches_str} | {comment_link} |")
+
+    body = "\n".join(lines)
+    print(f"  Posting queue to {pr_url} for user @{login}")
+    run_gh_api(
+        [
+            f"/repos/{REPO}/issues/{pr_number}/comments",
+            "-X",
+            "POST",
+            "-f",
+            f"body={body}",
+        ]
+    )
+    fetch_issue_comment_bodies(pr_number).append(body)
+
+
 def process_comment(comment: Mapping, now: datetime) -> None:
     #print(f"Processing comment: {comment}")
     body = comment.get("body") or ""
@@ -285,6 +364,11 @@ def process_comment(comment: Mapping, now: datetime) -> None:
     pr_number = pr_number_from_url(issue_url)
     if not pr_number:
         print(f"  Could not extract PR number from URL {issue_url}")
+        return
+
+    if body.strip().lower() == "show benchmark queue":
+        print("  Detected queue request")
+        post_queue(pr_number, login, comment_url)
         return
 
     benches = detect_benchmark(body)
