@@ -10,7 +10,7 @@ set -x -e
 mkdir -p jobs
 while true ; do
     echo "Checking for jobs"
-    for job in `ls jobs/*.sh` ; do
+    for job in `ls -tr jobs/*.sh` ; do
         echo "Running job $job"
         bash "$job"
         echo "Renaming $job to $job.done"

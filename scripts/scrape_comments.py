@@ -164,13 +164,12 @@ def list_job_files() -> list[str]:
     jobs_dir = "jobs"
     if not os.path.isdir(jobs_dir):
         return []
-    return sorted(
-        [
-            os.path.join(jobs_dir, f)
-            for f in os.listdir(jobs_dir)
-            if f.endswith(".sh") and os.path.isfile(os.path.join(jobs_dir, f))
-        ]
-    )
+    files = [
+        os.path.join(jobs_dir, f)
+        for f in os.listdir(jobs_dir)
+        if f.endswith(".sh") and os.path.isfile(os.path.join(jobs_dir, f))
+    ]
+    return sorted(files, key=lambda p: os.path.getmtime(p))
 
 
 # Detects benchmark trigger in comment body.
