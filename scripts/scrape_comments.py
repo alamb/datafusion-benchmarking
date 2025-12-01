@@ -42,7 +42,8 @@ ALLOWED_BENCHMARKS = {
 }
 # Allowed criterion-based (cargo bench) benchmarks
 ALLOWED_CRITERION_BENCHMARKS = {
-    "sql_planner"
+    "sql_planner",
+    "in_list",
 }
 SCRIPT_MARKDOWN_LINK = "[scrape_comments.py](scripts/scrape_comments.py)"
 _issue_comment_cache: dict[str, list[str]] = {}
