@@ -122,8 +122,8 @@ def fetch_issue_comment_bodies(pr_number: str) -> List[str]:
     return bodies
 
 
-def already_posted(pr_number: str, body: str) -> bool:
-    return body in fetch_issue_comment_bodies(pr_number)
+def already_posted(pr_number: str, comment_url: str) -> bool:
+    return any(comment_url in body for body in fetch_issue_comment_bodies(pr_number))
 
 
 # Detects benchmark trigger in comment body.
@@ -205,7 +205,7 @@ def post_user_notice(pr_number: str, login: str, comment_url: str) -> None:
         f"{SCRIPT_MARKDOWN_LINK} only responds to whitelisted users. "
         f"Allowed users: {allowed}."
     )
-    if already_posted(pr_number, body):
+    if already_posted(pr_number, comment_url):
         print(f"  Notice already posted for PR {pr_number}, skipping")
         return
     print(f"  Posting notice to {pr_url} for user @{login}")
@@ -232,12 +232,12 @@ def post_supported_benchmarks(
         if bad:
             unsupported = f" Unsupported benchmarks: {', '.join(bad)}."
     body = (
-        f"🤖 Hi @{login}, thanks for the request ({comment_url}). "
-        f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}. "
+        f"🤖 Hi @{login}, thanks for the request ({comment_url}).\n\n"
+        f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks: {supported}.\n\n"
         "Please choose one of these with `run benchmark <name>`."
         f"{unsupported}"
     )
-    if already_posted(pr_number, body):
+    if already_posted(pr_number, comment_url):
         print(f"  Supported benchmarks notice already posted for PR {pr_number}, skipping")
         return
     print(f"  Posting supported benchmarks to {pr_url} for user @{login}")
