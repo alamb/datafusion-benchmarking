@@ -37,7 +37,10 @@ from shutil import which
 from typing import Iterable, List, Mapping, Sequence
 
 # Repo configs
-ALLOWED_USERS = {"alamb", "Dandandan", "adriangb", "rluvaton"}
+ALLOWED_USERS = {
+    "alamb", "Dandandan", "adriangb", "rluvaton",
+    "xudong963", "zhuqi-lucas", "Omega359"
+}
 ALLOWED_BENCHMARKS_DF = {
     "tpch",
     "tpch10",
