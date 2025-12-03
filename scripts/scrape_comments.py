@@ -28,7 +28,10 @@ from shutil import which
 from typing import Iterable, List, Mapping
 
 
-ALLOWED_USERS = {"alamb", "Dandandan", "adriangb", "rluvaton"}
+ALLOWED_USERS = {
+    "alamb", "Dandandan", "adriangb", "rluvaton",
+    "xudong963", "zhuqi-lucas", "Omega359"
+}
 # Allowed bench.sh based benchmarks
 ALLOWED_BENCHMARKS = {
     "tpch",
