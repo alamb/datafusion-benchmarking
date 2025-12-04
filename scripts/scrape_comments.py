@@ -49,7 +49,7 @@ ALLOWED_BENCHMARKS_DF = {
     "clickbench_pushdown",
 }
 ALLOWED_CRITERION_BENCHMARKS_DF = {"sql_planner", "case_when"}
-ALLOWED_CRITERION_BENCHMARKS_ARROW = {"filter_kernels", "arrow_reader", "concatenate_kernels"}
+ALLOWED_CRITERION_BENCHMARKS_ARROW = {"filter_kernels", "arrow_reader", "concatenate_kernels", "coalesce_kernels"}
 
 DEFAULT_REPOS = "apache/datafusion:apache/arrow-rs"
 
