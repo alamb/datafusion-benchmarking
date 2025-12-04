@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """
-Scrape fresh PR review comments on apache/datafusion for benchmark triggers using a single
-GitHub API call.
+Scrape fresh PR comments for benchmark triggers across one or more repos.
 
 Behavior:
-1. Gets recent PR comments via GitHub API
-2. Filters to trigger phrases:
-   - "run benchmarks"
-   - "run benchmark <name>" where <name> is in ALLOWED_BENCHMARKS or ALLOWED_CRITERION_BENCHMARKS
-   - "run benchmark <name1> <name2> ..." where each name is in ALLOWED_BENCHMARKS/ALLOWED_CRITERION_BENCHMARKS
+1. Reads REPO env, which may be a colon-separated list (default: apache/datafusion:apache/arrow).
+2. For each repo, fetches recent PR comments and matches trigger phrases:
+   - "run benchmarks" (default suite)
+   - "run benchmark <name1> <name2> ..." where each name is whitelisted
    - "show benchmark queue" to list pending jobs
-3. For allowed users, schedules benchmark jobs; for non-allowed users posting a trigger,
-   replies on the PR explaining the whitelist. For any "run benchmark" request that does
-   not match a supported benchmark, replies with the supported benchmark list.
-Only comments created within the last TIME_WINDOW_SECONDS are processed.
+3. Allowed users only: schedules jobs (writes jobs/*.sh) and reacts with 🚀.
+4. Non-allowed users get a whitelist notice. Unsupported benchmarks get a supported-list reply.
+5. Queue requests reply with a markdown table of pending jobs.
+
+Repo-specific behavior:
+- apache/datafusion:
+  - Standard benchmarks (bench.sh): ALLOWED_BENCHMARKS below; command: gh_compare_branch.sh
+  - Criterion benchmarks: ALLOWED_CRITERION_BENCHMARKS_DF; command: gh_compare_branch_bench.sh
+  - Job files: <pr>_<comment>.sh
+- apache/arrow:
+  - No standard benchmarks
+  - Criterion benchmarks: ALLOWED_CRITERION_BENCHMARKS_ARROW
+  - Command: gh_compare_arrow.sh
+  - Job files: arrow-<pr>-<comment>.sh
 """
 
 from __future__ import annotations
@@ -22,18 +30,15 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from json import loads
 from shutil import which
-from typing import Iterable, List, Mapping
+from typing import Iterable, List, Mapping, Sequence
 
-
-ALLOWED_USERS = {
-    "alamb", "Dandandan", "adriangb", "rluvaton",
-    "xudong963", "zhuqi-lucas", "Omega359"
-}
-# Allowed bench.sh based benchmarks
-ALLOWED_BENCHMARKS = {
+# Repo configs
+ALLOWED_USERS = {"alamb", "Dandandan", "adriangb", "rluvaton"}
+ALLOWED_BENCHMARKS_DF = {
     "tpch",
     "tpch10",
     "tpch_mem",
@@ -43,18 +48,27 @@ ALLOWED_BENCHMARKS = {
     "clickbench_1",
     "clickbench_pushdown",
 }
-# Allowed criterion-based (cargo bench) benchmarks
-ALLOWED_CRITERION_BENCHMARKS = {
-    "sql_planner",
-    "in_list",
-}
-SCRIPT_MARKDOWN_LINK = "[scrape_comments.py](scripts/scrape_comments.py)"
-_issue_comment_cache: dict[str, list[str]] = {}
+ALLOWED_CRITERION_BENCHMARKS_DF = {"sql_planner"}
+ALLOWED_CRITERION_BENCHMARKS_ARROW = {"filter_kernels", "arrow_reader", "concatenate_kernels"}
 
-REPO = os.environ.get("REPO", "apache/datafusion")
+DEFAULT_REPOS = "apache/datafusion:apache/arrow-rs"
+
 TIME_WINDOW_SECONDS = 3600
 PER_PAGE = 100
 SCRIPT_MARKDOWN_LINK = "[`scrape_comments.py`](https://github.com/alamb/datafusion-benchmarking/blob/main/scripts/scrape_comments.py)"
+
+_issue_comment_cache: dict[tuple[str, str], list[str]] = {}
+
+
+@dataclass
+class RepoConfig:
+    repo: str
+    allowed_standard: set[str]
+    allowed_criterion: set[str]
+    job_prefix: str
+    std_cmd: str
+    criterion_cmd: str
+    file_naming: str  # "df" (pr_comment) or "arrow" (prefix-pr-comment)
 
 
 def ensure_tool(name: str) -> None:
@@ -73,17 +87,17 @@ def run_gh_api(args: List[str]) -> str:
     return result.stdout
 
 
-def fetch_recent_review_comments(now: datetime) -> Iterable[Mapping]:
+def fetch_recent_review_comments(now: datetime, repo: str) -> Iterable[Mapping]:
     since = now - timedelta(seconds=TIME_WINDOW_SECONDS)
     since_iso = since.replace(microsecond=0).isoformat().replace("+00:00", "Z")
     print(
         f"Fetching review comments since {since_iso} "
-        f"(window {TIME_WINDOW_SECONDS}s, per_page={PER_PAGE}) for {REPO}"
+        f"(window {TIME_WINDOW_SECONDS}s, per_page={PER_PAGE}) for {repo}"
     )
     output = run_gh_api(
         [
-            f"-XGET",
-            f"/repos/{REPO}/issues/comments",
+            "-XGET",
+            f"/repos/{repo}/issues/comments",
             "-f",
             f"per_page={PER_PAGE}",
             "-f",
@@ -104,14 +118,15 @@ def fetch_recent_review_comments(now: datetime) -> Iterable[Mapping]:
     return data
 
 
-def fetch_issue_comment_bodies(pr_number: str) -> List[str]:
-    if pr_number in _issue_comment_cache:
-        return _issue_comment_cache[pr_number]
-    print(f"  Fetching existing issue comments for PR {pr_number}")
+def fetch_issue_comment_bodies(repo: str, pr_number: str) -> List[str]:
+    key = (repo, pr_number)
+    if key in _issue_comment_cache:
+        return _issue_comment_cache[key]
+    print(f"  Fetching existing issue comments for PR {pr_number} ({repo})")
     output = run_gh_api(
         [
             "-XGET",
-            f"/repos/{REPO}/issues/{pr_number}/comments",
+            f"/repos/{repo}/issues/{pr_number}/comments",
             "-f",
             f"per_page={PER_PAGE}",
         ]
@@ -128,12 +143,12 @@ def fetch_issue_comment_bodies(pr_number: str) -> List[str]:
                 body = item.get("body")
                 if isinstance(body, str):
                     bodies.append(body)
-    _issue_comment_cache[pr_number] = bodies
+    _issue_comment_cache[key] = bodies
     return bodies
 
 
-def already_posted(pr_number: str, comment_url: str) -> bool:
-    return any(comment_url in body for body in fetch_issue_comment_bodies(pr_number))
+def already_posted(repo: str, pr_number: str, comment_url: str) -> bool:
+    return any(comment_url in body for body in fetch_issue_comment_bodies(repo, pr_number))
 
 
 def parse_job_metadata(path: str) -> tuple[str, str, str]:
@@ -176,11 +191,9 @@ def list_job_files() -> list[str]:
     return sorted(files, key=lambda p: os.path.getmtime(p))
 
 
-# Detects benchmark trigger in comment body.
-# Returns:
 # Returns list of benchmarks to run, or an empty list for the default "run benchmarks".
 # Returns None if no trigger detected, or if any requested benchmark is unsupported.
-def detect_benchmark(body: str) -> List[str] | None:
+def detect_benchmark(body: str, cfg: RepoConfig) -> List[str] | None:
     # check for "run benchmarks" (default set)
     match = re.match(r"^\s*run\s+benchmarks\s*$", body, flags=re.IGNORECASE)
     if match:
@@ -195,10 +208,11 @@ def detect_benchmark(body: str) -> List[str] | None:
     if not names:
         return None
 
-    if all(name in ALLOWED_BENCHMARKS or name in ALLOWED_CRITERION_BENCHMARKS for name in names):
+    if all(name in cfg.allowed_standard or name in cfg.allowed_criterion for name in names):
         return names
 
     return None
+
 
 def pr_number_from_url(url: str) -> str:
     # URL format: https://api.github.com/repos/{owner}/{repo}/pulls/{number}
@@ -216,18 +230,18 @@ def pr_number_from_url(url: str) -> str:
 #       BENCHMARKS="<bench>" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
 #   - If in ALLOWED_CRITERION_BENCHMARKS:
 #       BENCH_NAME="<bench>" ./gh_compare_branch_bench.sh https://github.com/apache/datafusion/pull/<pr_number>
-def get_benchmark_script(pr_number: str, benches: List[str]) -> str:
-    pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
+def get_benchmark_script(pr_number: str, benches: List[str], cfg: RepoConfig) -> str:
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
     if benches:
         lines = []
         for bench in benches:
-            if bench in ALLOWED_CRITERION_BENCHMARKS:
-                lines.append(f"""BENCH_NAME="{bench}" ./gh_compare_branch_bench.sh {pr_url}""")
+            if bench in cfg.allowed_criterion:
+                lines.append(f"""BENCH_NAME="{bench}" ./{cfg.criterion_cmd} {pr_url}""")
             else:
-                lines.append(f"""BENCHMARKS="{bench}" ./gh_compare_branch.sh {pr_url}""")
+                lines.append(f"""BENCHMARKS="{bench}" ./{cfg.std_cmd} {pr_url}""")
         return "\n".join(lines)
     else:
-        return f"""./gh_compare_branch.sh {pr_url}"""
+        return f"""./{cfg.std_cmd} {pr_url}"""
 
 
 def allowed_users_markdown() -> str:
@@ -235,16 +249,11 @@ def allowed_users_markdown() -> str:
     return ", ".join(f"[{u}](https://github.com/{u})" for u in users)
 
 
-def post_acknowledge(pr_number: str, login: str, comment_url: str) -> None:
-    # Unused after reaction-based acknowledgements.
-    return
-
-
-def post_reaction(comment_id: str, content: str) -> None:
+def post_reaction(comment_id: str, content: str, cfg: RepoConfig) -> None:
     print(f"  Posting reaction '{content}' to comment {comment_id}")
     run_gh_api(
         [
-            f"/repos/{REPO}/issues/comments/{comment_id}/reactions",
+            f"/repos/{cfg.repo}/issues/comments/{comment_id}/reactions",
             "-X",
             "POST",
             "-f",
@@ -253,72 +262,70 @@ def post_reaction(comment_id: str, content: str) -> None:
     )
 
 
-def post_user_notice(pr_number: str, login: str, comment_url: str) -> None:
-    pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
+def post_user_notice(repo: str, pr_number: str, login: str, comment_url: str) -> None:
+    pr_url = f"https://github.com/{repo}/pull/{pr_number}"
     allowed = allowed_users_markdown()
     body = (
         f"🤖 Hi @{login}, thanks for the request ({comment_url}). "
         f"{SCRIPT_MARKDOWN_LINK} only responds to whitelisted users. "
         f"Allowed users: {allowed}."
     )
-    if already_posted(pr_number, comment_url):
+    if already_posted(repo, pr_number, comment_url):
         print(f"  Notice already posted for PR {pr_number}, skipping")
         return
     print(f"  Posting notice to {pr_url} for user @{login}")
     run_gh_api(
         [
-            f"/repos/{REPO}/issues/{pr_number}/comments",
+            f"/repos/{repo}/issues/{pr_number}/comments",
             "-X",
             "POST",
             "-f",
             f"body={body}",
         ]
     )
-    fetch_issue_comment_bodies(pr_number).append(body)
+    fetch_issue_comment_bodies(repo, pr_number).append(body)
 
 
 def post_supported_benchmarks(
-    pr_number: str, login: str, comment_url: str, requested: List[str] | None = None
+    repo: str, pr_number: str, login: str, comment_url: str, cfg: RepoConfig, requested: List[str]
 ) -> None:
-    pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
-    supported_standard = ", ".join(sorted(ALLOWED_BENCHMARKS))
-    supported_criterion = ", ".join(sorted(ALLOWED_CRITERION_BENCHMARKS))
+    pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+    supported_standard = ", ".join(sorted(cfg.allowed_standard)) or "(none)"
+    supported_criterion = ", ".join(sorted(cfg.allowed_criterion)) or "(none)"
     unsupported = ""
-    if requested:
-        bad = [
-            b
-            for b in requested
-            if b not in ALLOWED_BENCHMARKS and b not in ALLOWED_CRITERION_BENCHMARKS
-        ]
-        if bad:
-            unsupported = f"\nUnsupported benchmarks: {', '.join(bad)}."
+    bad = [
+        b for b in requested if b not in cfg.allowed_standard and b not in cfg.allowed_criterion
+    ]
+    if bad:
+        unsupported = f"\nUnsupported benchmarks: {', '.join(bad)}."
     body = (
         f"🤖 Hi @{login}, thanks for the request ({comment_url}).\n\n"
         f"{SCRIPT_MARKDOWN_LINK} only supports whitelisted benchmarks.\n"
         f"- Standard: {supported_standard}\n"
         f"- Criterion: {supported_criterion}\n\n"
-        "Please choose one or more of these with `run benchmark <name>` or `run benchmark <name1> <name2>...`"
+        "Please choose one or more of these with `run benchmark <name>` or "
+        "`run benchmark <name1> <name2>...`"
         f"{unsupported}"
     )
-    if already_posted(pr_number, comment_url):
+    if already_posted(repo, pr_number, comment_url):
         print(f"  Supported benchmarks notice already posted for PR {pr_number}, skipping")
         return
     print(f"  Posting supported benchmarks to {pr_url} for user @{login}")
     run_gh_api(
         [
-            f"/repos/{REPO}/issues/{pr_number}/comments",
+            f"/repos/{repo}/issues/{pr_number}/comments",
             "-X",
             "POST",
             "-f",
             f"body={body}",
         ]
     )
-    fetch_issue_comment_bodies(pr_number).append(body)
+    fetch_issue_comment_bodies(repo, pr_number).append(body)
 
 
-def post_queue(pr_number: str, login: str, comment_url: str) -> None:
-    pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
-    if already_posted(pr_number, comment_url):
+def post_queue(repo: str, pr_number: str, login: str, comment_url: str) -> None:
+    pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+    if already_posted(repo, pr_number, comment_url):
         print(f"  Queue response already posted for PR {pr_number}, skipping")
         return
 
@@ -343,18 +350,23 @@ def post_queue(pr_number: str, login: str, comment_url: str) -> None:
     print(f"  Posting queue to {pr_url} for user @{login}")
     run_gh_api(
         [
-            f"/repos/{REPO}/issues/{pr_number}/comments",
+            f"/repos/{repo}/issues/{pr_number}/comments",
             "-X",
             "POST",
             "-f",
             f"body={body}",
         ]
     )
-    fetch_issue_comment_bodies(pr_number).append(body)
+    fetch_issue_comment_bodies(repo, pr_number).append(body)
 
 
-def process_comment(comment: Mapping, now: datetime) -> None:
-    #print(f"Processing comment: {comment}")
+def job_file_name(pr_number: str, comment_id: str, cfg: RepoConfig) -> str:
+    if cfg.file_naming == "arrow":
+        return f"jobs/{cfg.job_prefix}{pr_number}-{comment_id}.sh"
+    return f"jobs/{pr_number}_{comment_id}.sh"
+
+
+def process_comment(comment: Mapping, now: datetime, repo: str, cfg: RepoConfig) -> None:
     body = comment.get("body") or ""
     login = comment.get("user", {}).get("login") or ""
     comment_url = comment.get("html_url") or ""
@@ -362,7 +374,7 @@ def process_comment(comment: Mapping, now: datetime) -> None:
     issue_url = comment.get("issue_url") or ""
     comment_id = comment.get("id") or ""
 
-    print(f"Processing comment {comment_id} by {login} at {created_at}")
+    print(f"Processing comment {comment_id} by {login} at {created_at} for repo {repo}")
 
     pr_number = pr_number_from_url(issue_url)
     if not pr_number:
@@ -371,24 +383,24 @@ def process_comment(comment: Mapping, now: datetime) -> None:
 
     if body.strip().lower() == "show benchmark queue":
         print("  Detected queue request")
-        post_queue(pr_number, login, comment_url)
+        post_queue(repo, pr_number, login, comment_url)
         return
 
-    benches = detect_benchmark(body)
+    benches = detect_benchmark(body, cfg)
     if benches is None:
         print(f"  No benchmark trigger detected in {body}")
         if body.strip().lower().startswith("run benchmark"):
             print("  Comment starts with 'run benchmark' but benchmark is unsupported.")
+            requested = [n for n in body.split()[2:] if n]
             if login not in ALLOWED_USERS:
-                post_user_notice(pr_number, login, comment_url)
+                post_user_notice(repo, pr_number, login, comment_url)
             else:
-                requested = [n for n in body.split()[2:] if n]
-                post_supported_benchmarks(pr_number, login, comment_url, requested)
+                post_supported_benchmarks(repo, pr_number, login, comment_url, cfg, requested)
         return
 
     if login not in ALLOWED_USERS:
         print(f"  User {login} not in allowed list")
-        post_user_notice(pr_number, login, comment_url)
+        post_user_notice(repo, pr_number, login, comment_url)
         return
     print(f"  Found comment from allowed user: {login}")
     if benches:
@@ -396,21 +408,18 @@ def process_comment(comment: Mapping, now: datetime) -> None:
     else:
         print("  Benchmarks requested: default suite")
 
-    # create a file to run the benchmark in jobs/<pr_number>_<id>.sh
-    # if it doesn't already exist
-    file_name = f"jobs/{pr_number}_{comment_id}.sh"
+    file_name = job_file_name(pr_number, str(comment_id), cfg)
     if os.path.exists(file_name):
         print(f"  Job file {file_name} already exists, skipping")
         return
-    # check if a jobs/<pr_number>_<id>.sh.done file exists
     done_file_name = f"{file_name}.done"
     if os.path.exists(done_file_name):
         print(f"  Job done file {done_file_name} already exists, skipping")
         return
 
-    script_content = get_benchmark_script(pr_number, benches)
+    script_content = get_benchmark_script(pr_number, benches, cfg)
     os.makedirs("jobs", exist_ok=True)
-    pr_url = f"https://github.com/{REPO}/pull/{pr_number}"
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
     with open(file_name, "w") as f:
         f.write("# Automatically created by scrape_comments.py\n")
         f.write(f"# PR: {pr_url}\n")
@@ -421,23 +430,62 @@ def process_comment(comment: Mapping, now: datetime) -> None:
         f.write(script_content)
         f.write("\n")
     print(f"  Scheduling benchmark run in {file_name}")
-    # React with a rocket to acknowledge the request.
     if comment_id:
-        post_reaction(str(comment_id), "rocket")
+        post_reaction(str(comment_id), "rocket", cfg)
 
+
+def build_configs(env_repos: str) -> List[RepoConfig]:
+    repos = [r.strip() for r in env_repos.split(":") if r.strip()]
+    configs: List[RepoConfig] = []
+    for repo in repos:
+        if repo == "apache/datafusion":
+            configs.append(
+                RepoConfig(
+                    repo=repo,
+                    allowed_standard=set(ALLOWED_BENCHMARKS_DF),
+                    allowed_criterion=set(ALLOWED_CRITERION_BENCHMARKS_DF),
+                    job_prefix="",
+                    std_cmd="gh_compare_branch.sh",
+                    criterion_cmd="gh_compare_branch_bench.sh",
+                    file_naming="df",
+                )
+            )
+        elif repo == "apache/arrow-rs":
+            configs.append(
+                RepoConfig(
+                    repo=repo,
+                    allowed_standard=set(),
+                    allowed_criterion=set(ALLOWED_CRITERION_BENCHMARKS_ARROW),
+                    job_prefix="arrow-",
+                    std_cmd="gh_compare_arrow.sh",
+                    criterion_cmd="gh_compare_arrow.sh",
+                    file_naming="arrow",
+                )
+            )
+        else:
+            print(f"Unknown repo '{repo}', skipping", file=sys.stderr)
+    return configs
 
 
 def main() -> None:
     ensure_tool("gh")
 
+    env_repos = os.environ.get("REPO", DEFAULT_REPOS)
+    configs = build_configs(env_repos)
+    if not configs:
+        print("No valid repositories configured.", file=sys.stderr)
+        sys.exit(1)
+
     now = datetime.now(timezone.utc)
     print(f"Current time (UTC): {now.isoformat()}")
     print(f"Time window: last {TIME_WINDOW_SECONDS} seconds")
-    print(f"Repo: {REPO}")
-    comments = list(fetch_recent_review_comments(now))
-    print(f"Processing {len(comments)} comments")
-    for comment in comments:
-        process_comment(comment, now)
+    print(f"Repos: {', '.join(cfg.repo for cfg in configs)}")
+
+    for cfg in configs:
+        comments = list(fetch_recent_review_comments(now, cfg.repo))
+        print(f"Processing {len(comments)} comments for {cfg.repo}")
+        for comment in comments:
+            process_comment(comment, now, cfg.repo, cfg)
 
 
 if __name__ == "__main__":

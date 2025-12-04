@@ -25,6 +25,7 @@ When multiple benchmarks are requested, the job will emit one command per benchm
 BENCHMARKS="tpch" ./gh_compare_branch.sh <pr_url>
 BENCHMARKS="tpch_mem" ./gh_compare_branch.sh <pr_url>
 BENCH_NAME="sql_planner" ./gh_compare_branch_bench.sh <pr_url>
+BENCH_NAME="concatenate_kernels" ./gh_compare_arrow.sh <pr_url>
 ```
 
 `show benchmark queue` replies with a table of pending jobs (`jobs/*.sh`) including the job file,
