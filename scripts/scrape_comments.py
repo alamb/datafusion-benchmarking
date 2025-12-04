@@ -87,17 +87,17 @@ def run_gh_api(args: List[str]) -> str:
     return result.stdout
 
 
-def fetch_recent_review_comments(now: datetime, repo: str) -> Iterable[Mapping]:
+def fetch_recent_review_comments(cfg: RepoConfig, now: datetime) -> Iterable[Mapping]:
     since = now - timedelta(seconds=TIME_WINDOW_SECONDS)
     since_iso = since.replace(microsecond=0).isoformat().replace("+00:00", "Z")
     print(
         f"Fetching review comments since {since_iso} "
-        f"(window {TIME_WINDOW_SECONDS}s, per_page={PER_PAGE}) for {repo}"
+        f"(window {TIME_WINDOW_SECONDS}s, per_page={PER_PAGE}) for {cfg.repo}"
     )
     output = run_gh_api(
         [
             "-XGET",
-            f"/repos/{repo}/issues/comments",
+            f"/repos/{cfg.repo}/issues/comments",
             "-f",
             f"per_page={PER_PAGE}",
             "-f",
@@ -118,15 +118,15 @@ def fetch_recent_review_comments(now: datetime, repo: str) -> Iterable[Mapping]:
     return data
 
 
-def fetch_issue_comment_bodies(repo: str, pr_number: str) -> List[str]:
-    key = (repo, pr_number)
+def fetch_issue_comment_bodies(cfg: RepoConfig, pr_number: str) -> List[str]:
+    key = (cfg.repo, pr_number)
     if key in _issue_comment_cache:
         return _issue_comment_cache[key]
-    print(f"  Fetching existing issue comments for PR {pr_number} ({repo})")
+    print(f"  Fetching existing issue comments for PR {pr_number} ({cfg.repo})")
     output = run_gh_api(
         [
             "-XGET",
-            f"/repos/{repo}/issues/{pr_number}/comments",
+            f"/repos/{cfg.repo}/issues/{pr_number}/comments",
             "-f",
             f"per_page={PER_PAGE}",
         ]
@@ -147,8 +147,8 @@ def fetch_issue_comment_bodies(repo: str, pr_number: str) -> List[str]:
     return bodies
 
 
-def already_posted(repo: str, pr_number: str, comment_url: str) -> bool:
-    return any(comment_url in body for body in fetch_issue_comment_bodies(repo, pr_number))
+def already_posted(cfg: RepoConfig, pr_number: str, comment_url: str) -> bool:
+    return any(comment_url in body for body in fetch_issue_comment_bodies(cfg, pr_number))
 
 
 def parse_job_metadata(path: str) -> tuple[str, str, str]:
@@ -193,7 +193,7 @@ def list_job_files() -> list[str]:
 
 # Returns list of benchmarks to run, or an empty list for the default "run benchmarks".
 # Returns None if no trigger detected, or if any requested benchmark is unsupported.
-def detect_benchmark(body: str, cfg: RepoConfig) -> List[str] | None:
+def detect_benchmark(cfg: RepoConfig, body: str) -> List[str] | None:
     # check for "run benchmarks" (default set)
     match = re.match(r"^\s*run\s+benchmarks\s*$", body, flags=re.IGNORECASE)
     if match:
@@ -230,7 +230,7 @@ def pr_number_from_url(url: str) -> str:
 #       BENCHMARKS="<bench>" ./gh_compare_branch.sh https://github.com/apache/datafusion/pull/<pr_number>
 #   - If in ALLOWED_CRITERION_BENCHMARKS:
 #       BENCH_NAME="<bench>" ./gh_compare_branch_bench.sh https://github.com/apache/datafusion/pull/<pr_number>
-def get_benchmark_script(pr_number: str, benches: List[str], cfg: RepoConfig) -> str:
+def get_benchmark_script(cfg: RepoConfig, pr_number: str, benches: List[str]) -> str:
     pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
     if benches:
         lines = []
@@ -249,7 +249,7 @@ def allowed_users_markdown() -> str:
     return ", ".join(f"[{u}](https://github.com/{u})" for u in users)
 
 
-def post_reaction(comment_id: str, content: str, cfg: RepoConfig) -> None:
+def post_reaction(cfg: RepoConfig, comment_id: str, content: str) -> None:
     print(f"  Posting reaction '{content}' to comment {comment_id}")
     run_gh_api(
         [
@@ -262,34 +262,34 @@ def post_reaction(comment_id: str, content: str, cfg: RepoConfig) -> None:
     )
 
 
-def post_user_notice(repo: str, pr_number: str, login: str, comment_url: str) -> None:
-    pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+def post_user_notice(cfg: RepoConfig, pr_number: str, login: str, comment_url: str) -> None:
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
     allowed = allowed_users_markdown()
     body = (
         f"🤖 Hi @{login}, thanks for the request ({comment_url}). "
         f"{SCRIPT_MARKDOWN_LINK} only responds to whitelisted users. "
         f"Allowed users: {allowed}."
     )
-    if already_posted(repo, pr_number, comment_url):
+    if already_posted(cfg, pr_number, comment_url):
         print(f"  Notice already posted for PR {pr_number}, skipping")
         return
     print(f"  Posting notice to {pr_url} for user @{login}")
     run_gh_api(
         [
-            f"/repos/{repo}/issues/{pr_number}/comments",
+            f"/repos/{cfg.repo}/issues/{pr_number}/comments",
             "-X",
             "POST",
             "-f",
             f"body={body}",
         ]
     )
-    fetch_issue_comment_bodies(repo, pr_number).append(body)
+    fetch_issue_comment_bodies(cfg, pr_number).append(body)
 
 
 def post_supported_benchmarks(
-    repo: str, pr_number: str, login: str, comment_url: str, cfg: RepoConfig, requested: List[str]
+    cfg: RepoConfig, pr_number: str, login: str, comment_url: str, requested: List[str]
 ) -> None:
-    pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
     supported_standard = ", ".join(sorted(cfg.allowed_standard)) or "(none)"
     supported_criterion = ", ".join(sorted(cfg.allowed_criterion)) or "(none)"
     unsupported = ""
@@ -307,25 +307,25 @@ def post_supported_benchmarks(
         "`run benchmark <name1> <name2>...`"
         f"{unsupported}"
     )
-    if already_posted(repo, pr_number, comment_url):
+    if already_posted(cfg, pr_number, comment_url):
         print(f"  Supported benchmarks notice already posted for PR {pr_number}, skipping")
         return
     print(f"  Posting supported benchmarks to {pr_url} for user @{login}")
     run_gh_api(
         [
-            f"/repos/{repo}/issues/{pr_number}/comments",
+            f"/repos/{cfg.repo}/issues/{pr_number}/comments",
             "-X",
             "POST",
             "-f",
             f"body={body}",
         ]
     )
-    fetch_issue_comment_bodies(repo, pr_number).append(body)
+    fetch_issue_comment_bodies(cfg, pr_number).append(body)
 
 
-def post_queue(repo: str, pr_number: str, login: str, comment_url: str) -> None:
-    pr_url = f"https://github.com/{repo}/pull/{pr_number}"
-    if already_posted(repo, pr_number, comment_url):
+def post_queue(cfg: RepoConfig, pr_number: str, login: str, comment_url: str) -> None:
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
+    if already_posted(cfg, pr_number, comment_url):
         print(f"  Queue response already posted for PR {pr_number}, skipping")
         return
 
@@ -350,23 +350,23 @@ def post_queue(repo: str, pr_number: str, login: str, comment_url: str) -> None:
     print(f"  Posting queue to {pr_url} for user @{login}")
     run_gh_api(
         [
-            f"/repos/{repo}/issues/{pr_number}/comments",
+            f"/repos/{cfg.repo}/issues/{pr_number}/comments",
             "-X",
             "POST",
             "-f",
             f"body={body}",
         ]
     )
-    fetch_issue_comment_bodies(repo, pr_number).append(body)
+    fetch_issue_comment_bodies(cfg, pr_number).append(body)
 
 
-def job_file_name(pr_number: str, comment_id: str, cfg: RepoConfig) -> str:
+def job_file_name(cfg: RepoConfig, pr_number: str, comment_id: str) -> str:
     if cfg.file_naming == "arrow":
         return f"jobs/{cfg.job_prefix}{pr_number}-{comment_id}.sh"
     return f"jobs/{pr_number}_{comment_id}.sh"
 
 
-def process_comment(comment: Mapping, now: datetime, repo: str, cfg: RepoConfig) -> None:
+def process_comment(cfg: RepoConfig, comment: Mapping, now: datetime) -> None:
     body = comment.get("body") or ""
     login = comment.get("user", {}).get("login") or ""
     comment_url = comment.get("html_url") or ""
@@ -374,7 +374,7 @@ def process_comment(comment: Mapping, now: datetime, repo: str, cfg: RepoConfig)
     issue_url = comment.get("issue_url") or ""
     comment_id = comment.get("id") or ""
 
-    print(f"Processing comment {comment_id} by {login} at {created_at} for repo {repo}")
+    print(f"Processing comment {comment_id} by {login} at {created_at} for repo {cfg.repo}")
 
     pr_number = pr_number_from_url(issue_url)
     if not pr_number:
@@ -383,24 +383,24 @@ def process_comment(comment: Mapping, now: datetime, repo: str, cfg: RepoConfig)
 
     if body.strip().lower() == "show benchmark queue":
         print("  Detected queue request")
-        post_queue(repo, pr_number, login, comment_url)
+        post_queue(cfg, pr_number, login, comment_url)
         return
 
-    benches = detect_benchmark(body, cfg)
+    benches = detect_benchmark(cfg, body)
     if benches is None:
         print(f"  No benchmark trigger detected in {body}")
         if body.strip().lower().startswith("run benchmark"):
             print("  Comment starts with 'run benchmark' but benchmark is unsupported.")
             requested = [n for n in body.split()[2:] if n]
             if login not in ALLOWED_USERS:
-                post_user_notice(repo, pr_number, login, comment_url)
+                post_user_notice(cfg, pr_number, login, comment_url)
             else:
-                post_supported_benchmarks(repo, pr_number, login, comment_url, cfg, requested)
+                post_supported_benchmarks(cfg, pr_number, login, comment_url, requested)
         return
 
     if login not in ALLOWED_USERS:
         print(f"  User {login} not in allowed list")
-        post_user_notice(repo, pr_number, login, comment_url)
+        post_user_notice(cfg, pr_number, login, comment_url)
         return
     print(f"  Found comment from allowed user: {login}")
     if benches:
@@ -408,7 +408,7 @@ def process_comment(comment: Mapping, now: datetime, repo: str, cfg: RepoConfig)
     else:
         print("  Benchmarks requested: default suite")
 
-    file_name = job_file_name(pr_number, str(comment_id), cfg)
+    file_name = job_file_name(cfg, pr_number, str(comment_id))
     if os.path.exists(file_name):
         print(f"  Job file {file_name} already exists, skipping")
         return
@@ -417,7 +417,7 @@ def process_comment(comment: Mapping, now: datetime, repo: str, cfg: RepoConfig)
         print(f"  Job done file {done_file_name} already exists, skipping")
         return
 
-    script_content = get_benchmark_script(pr_number, benches, cfg)
+    script_content = get_benchmark_script(cfg, pr_number, benches)
     os.makedirs("jobs", exist_ok=True)
     pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
     with open(file_name, "w") as f:
@@ -431,7 +431,7 @@ def process_comment(comment: Mapping, now: datetime, repo: str, cfg: RepoConfig)
         f.write("\n")
     print(f"  Scheduling benchmark run in {file_name}")
     if comment_id:
-        post_reaction(str(comment_id), "rocket", cfg)
+        post_reaction(cfg, str(comment_id), "rocket")
 
 
 def build_configs(env_repos: str) -> List[RepoConfig]:
@@ -482,10 +482,10 @@ def main() -> None:
     print(f"Repos: {', '.join(cfg.repo for cfg in configs)}")
 
     for cfg in configs:
-        comments = list(fetch_recent_review_comments(now, cfg.repo))
+        comments = list(fetch_recent_review_comments(cfg, now))
         print(f"Processing {len(comments)} comments for {cfg.repo}")
         for comment in comments:
-            process_comment(comment, now, cfg.repo, cfg)
+            process_comment(cfg, comment, now)
 
 
 if __name__ == "__main__":
