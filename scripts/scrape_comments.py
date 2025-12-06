@@ -72,7 +72,6 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "filter_kernels",
     "concatenate_kernels",
 }
->>>>>>> main
 
 DEFAULT_REPOS = "apache/datafusion:apache/arrow-rs"
 
