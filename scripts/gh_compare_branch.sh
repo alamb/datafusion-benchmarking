@@ -75,7 +75,7 @@ popd
 # create comment saying the benchmarks are running
 rm -f /tmp/comment.txt
 cat >/tmp/comment.txt <<EOL
-🤖 \`$0\` [Benchmark Script](https://github.com/alamb/datafusion-benchmarking/blob/main/gh_compare_branch.sh) Running
+🤖 \`$0\` [gh_compare_branch.sh](https://github.com/alamb/datafusion-benchmarking/blob/main/scripts/gh_compare_branch.sh) Running
 `uname -a`
 Comparing $BRANCH_NAME ($BRANCH_BASE) to $MERGE_BASE [diff](https://github.com/apache/datafusion/compare/$MERGE_BASE..$BRANCH_BASE) using:  $BENCHMARKS
 Results will be posted here when complete
