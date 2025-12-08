@@ -31,7 +31,7 @@ fi
 ## Benchmarks to run
 BENCH_NAME=${BENCH_NAME:-"sql_planner"}
 BENCH_FILTER=${BENCH_FILTER:-""}
-BENCH_COMMAND="cargo bench --bench $BENCH_NAME"
+BENCH_COMMAND="cargo bench --all-features --bench $BENCH_NAME"
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --release"
@@ -53,7 +53,7 @@ BENCH_BRANCH_NAME=${BRANCH_NAME//\//_} # mind blowing syntax to replace / with _
 # create comment saying the benchmarks are running
 rm -f /tmp/comment.txt
 cat >/tmp/comment.txt <<EOL
-🤖 \`$0\` [Benchmark Script](https://github.com/alamb/datafusion-benchmarking/blob/main/gh_compare_branch_bench.sh) Running
+🤖 \`$0\` [compare_branch_bench.sh](https://github.com/alamb/datafusion-benchmarking/blob/main/scripts/compare_branch_bench.sh) Running
 `uname -a`
 Comparing $BRANCH_NAME ($BRANCH_BASE) to $MERGE_BASE [diff](https://github.com/apache/datafusion/compare/$MERGE_BASE..$BRANCH_BASE)
 BENCH_NAME=$BENCH_NAME
@@ -68,10 +68,14 @@ gh pr comment -F /tmp/comment.txt $PR
 # remove old runs
 rm -rf target/criterion/
 
-# Run on test branch
+#####################
+# Run on test branch.
+####################
 $BENCH_COMMAND -- --save-baseline ${BENCH_BRANCH_NAME} ${BENCH_FILTER}
 
+#####################
 # Run on main (merge base)
+#####################
 git reset --hard
 git clean -f -d
 git checkout $MERGE_BASE
