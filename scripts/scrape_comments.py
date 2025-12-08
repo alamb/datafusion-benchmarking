@@ -53,6 +53,7 @@ ALLOWED_BENCHMARKS_DF = {
 }
 ALLOWED_CRITERION_BENCHMARKS_DF = {
     "sql_planner",
+    "in_list",
     "case_when",
     "aggregate_vectorized",
     "aggregate_query_sql",
