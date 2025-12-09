@@ -218,7 +218,7 @@ def list_job_files() -> list[str]:
 # Returns None if no trigger detected, or if any requested benchmark is unsupported.
 def detect_benchmark(cfg: RepoConfig, body: str) -> List[str] | None:
     # check for "run benchmarks" (default set)
-    match = re.match(r"^\s*run\s+benchmarks\s*$", body, flags=re.IGNORECASE)
+    match = re.match(r"^\s*run\s+benchmarks$", body, flags=re.IGNORECASE)
     if match:
         return []
 
