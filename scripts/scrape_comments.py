@@ -66,6 +66,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_writer",
     "coalesce_kernels",
     "take_kernels",
+    "interleave_kernels",
     "union_array",
     "variant_builder",
     "variant_kernels",
