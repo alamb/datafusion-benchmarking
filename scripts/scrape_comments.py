@@ -70,6 +70,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_reader_row_filter",
     "arrow_statistics",
     "arrow_writer",
+    "array_iter",
     "coalesce_kernels",
     "take_kernels",
     "interleave_kernels",
