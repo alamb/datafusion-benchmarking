@@ -71,6 +71,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_statistics",
     "arrow_writer",
     "array_iter",
+    "csv_writer",
     "coalesce_kernels",
     "take_kernels",
     "interleave_kernels",
