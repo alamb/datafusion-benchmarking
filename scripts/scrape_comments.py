@@ -71,7 +71,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_statistics",
     "arrow_writer",
     "array_iter",
-    "bitwise_kernels",
+    "bitwise_kernel",
     "boolean_kernels",
     "cast_kernels",
     "comparison_kernels",
