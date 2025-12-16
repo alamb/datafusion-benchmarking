@@ -84,6 +84,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "union_array",
     "variant_builder",
     "variant_kernels",
+    "view_types",
     "variant_validation",
     "filter_kernels",
     "concatenate_kernels",
