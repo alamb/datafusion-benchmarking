@@ -46,6 +46,7 @@ ALLOWED_USERS = {
     "xudong963",
     "zhuqi-lucas",
     "Omega359",
+    "comphead",
 }
 ALLOWED_BENCHMARKS_DF = {
     "tpch",
