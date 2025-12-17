@@ -314,7 +314,7 @@ def get_benchmark_script(cfg: RepoConfig, pr_number: str, benches: List[str]) ->
         '  gh pr comment "${PR_URL}" --body-file "${body_file}"',
         "",
         '  rm -f "${body_file}"',
-        '  exit "${exit_code}"',
+        "  exit 0",
         "}",
         "",
         "trap error_handler ERR",
