@@ -87,7 +87,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "view_types",
     "variant_validation",
     "filter_kernels",
-    "concatenate_kernels",
+    "concatenate_kernel",
 }
 
 DEFAULT_REPOS = "apache/datafusion:apache/arrow-rs"
