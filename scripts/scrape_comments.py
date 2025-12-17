@@ -57,6 +57,7 @@ ALLOWED_BENCHMARKS_DF = {
     "clickbench_1",
     "clickbench_pushdown",
     "external_aggr",
+    "tpcds",
 }
 ALLOWED_CRITERION_BENCHMARKS_DF = {
     "sql_planner",
