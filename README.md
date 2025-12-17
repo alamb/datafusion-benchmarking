@@ -32,7 +32,7 @@ The directory structure is as follows:
 2. `queries`: query scripts (new copy)
 3. `results`: output directory for benchmark results
 4. `builds`: directory binaries, named with the format `datafusion-cli@<revision>@<revision_timestamp>`
-4. `scripts`: scripts for manually running benchmarks (not part of this report). See [scripts] for more details.
+5`scripts`: scripts for manually running benchmarks (not part of this report). See [scripts] for more details.
 
 
 ## TODOs:

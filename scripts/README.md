@@ -49,16 +49,14 @@ one of the following scripts:
 
 ## Runner Cookbook
 
-Scrape comments every second (in one terminal):
+To run these scripts on a benchmark machine, you need to run two scripts in parallel:
+
+Poll for commands comments every second (in one terminal):
 ```shell
-while true ; do python3 scrape_comments.py ; sleep 1; done
+while true ; do python3 scrape_comments.py ; sleep 5; done
 ```
 
 Run jobs (in a second terminal):
 ```shell
 bash poll.sh
 ```
-
-# TODO:
-- [ ] Add more benchmark types (e.g. criterion based benchmarks)
-- [ ] Add support for arrow-rs benchmarks
