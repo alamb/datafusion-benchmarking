@@ -271,16 +271,60 @@ def pr_number_from_url(url: str) -> str:
 #       BENCH_NAME="<bench>" ./gh_compare_branch_bench.sh https://github.com/apache/datafusion/pull/<pr_number>
 def get_benchmark_script(cfg: RepoConfig, pr_number: str, benches: List[str]) -> str:
     pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
+    commands: list[str] = []
     if benches:
-        lines = []
         for bench in benches:
             if bench in cfg.allowed_criterion:
-                lines.append(f"""BENCH_NAME="{bench}" ./{cfg.criterion_cmd} {pr_url}""")
+                commands.append(f"""BENCH_NAME="{bench}" ./{cfg.criterion_cmd} {pr_url}""")
             else:
-                lines.append(f"""BENCHMARKS="{bench}" ./{cfg.std_cmd} {pr_url}""")
-        return "\n".join(lines)
+                commands.append(f"""BENCHMARKS="{bench}" ./{cfg.std_cmd} {pr_url}""")
     else:
-        return f"""./{cfg.std_cmd} {pr_url}"""
+        commands.append(f"""./{cfg.std_cmd} {pr_url}""")
+
+    lines = [
+        "#!/usr/bin/env bash",
+        "",
+        "set -euo pipefail",
+        "",
+        f'PR_URL="{pr_url}"',
+        'OUTPUT_FILE="/tmp/benchmark_script_output.txt"',
+        "",
+        "error_handler() {",
+        "  local exit_code=$?",
+        "  set +e",
+        "",
+        "  local tail_output",
+        '  tail_output="$(tail -n 10 "$OUTPUT_FILE" 2>/dev/null || true)"',
+        "",
+        "  local body_file",
+        '  body_file="$(mktemp)"',
+        "  {",
+        '    echo "Benchmark script failed with exit code ${exit_code}."',
+        "    echo",
+        '    echo "Last 10 lines of output:"',
+        '    echo "<details><summary>Click to expand</summary>"',
+        "    echo",
+        "    echo '```'",
+        '    echo "${tail_output}"',
+        "    echo '```'",
+        "    echo",
+        '    echo "</details>"',
+        '  } > "${body_file}"',
+        "",
+        '  gh pr comment "${PR_URL}" --body-file "${body_file}"',
+        "",
+        '  rm -f "${body_file}"',
+        '  exit "${exit_code}"',
+        "}",
+        "",
+        "trap error_handler ERR",
+        "",
+        ': > "${OUTPUT_FILE}"',
+        'exec > >(tee -a "${OUTPUT_FILE}") 2>&1',
+        "",
+    ]
+    lines.extend(commands)
+    return "\n".join(lines)
 
 
 def allowed_users_markdown() -> str:
