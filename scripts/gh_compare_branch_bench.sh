@@ -31,7 +31,7 @@ fi
 ## Benchmarks to run
 BENCH_NAME=${BENCH_NAME:-"sql_planner"}
 BENCH_FILTER=${BENCH_FILTER:-""}
-BENCH_COMMAND="cargo bench --all-features --bench $BENCH_NAME"
+BENCH_COMMAND="cargo bench --features=parquet --bench $BENCH_NAME"
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --release"
