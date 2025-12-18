@@ -66,6 +66,7 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "case_when",
     "aggregate_vectorized",
     "aggregate_query_sql",
+    "with_hashes",
 }
 ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_reader",
