@@ -82,6 +82,8 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "comparison_kernels",
     "csv_writer",
     "coalesce_kernels",
+    "encoding",
+    "metadata",
     "take_kernels",
     "interleave_kernels",
     "union_array",
