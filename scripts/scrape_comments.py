@@ -67,6 +67,7 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "aggregate_vectorized",
     "aggregate_query_sql",
     "with_hashes",
+    "range_and_generate_series",
 }
 ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_reader",
