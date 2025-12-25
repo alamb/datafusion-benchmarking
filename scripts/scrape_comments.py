@@ -68,6 +68,7 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "aggregate_query_sql",
     "with_hashes",
     "range_and_generate_series",
+    "sort",
 }
 ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_reader",
