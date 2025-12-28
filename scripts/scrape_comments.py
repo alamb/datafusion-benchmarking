@@ -96,6 +96,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "filter_kernels",
     "concatenate_kernel",
     "row_format",
+    "zip_kernels",
 }
 
 DEFAULT_REPOS = "apache/datafusion:apache/arrow-rs"
