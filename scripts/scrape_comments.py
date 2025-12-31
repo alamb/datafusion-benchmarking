@@ -69,6 +69,7 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "with_hashes",
     "range_and_generate_series",
     "sort",
+    "character_length",
 }
 ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_reader",
