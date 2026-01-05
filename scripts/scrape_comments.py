@@ -70,6 +70,7 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "range_and_generate_series",
     "sort",
     "strpos",
+    "substr_index",
     "character_length",
 }
 ALLOWED_CRITERION_BENCHMARKS_ARROW = {
