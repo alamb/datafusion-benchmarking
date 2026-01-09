@@ -70,6 +70,7 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "with_hashes",
     "range_and_generate_series",
     "sort",
+    "left",
     "strpos",
     "substr_index",
     "character_length",
