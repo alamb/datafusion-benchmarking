@@ -91,6 +91,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "coalesce_kernels",
     "encoding",
     "metadata",
+    "json-reader",
     "take_kernels",
     "interleave_kernels",
     "union_array",
