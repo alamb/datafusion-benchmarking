@@ -254,7 +254,7 @@ def detect_benchmark(cfg: RepoConfig, body: str) -> List[str] | None:
         return []
 
     # check for "run benchmark <name...>"
-    match = re.match(r"^\s*run\s+benchmark\s+([a-zA-Z0-9_\s]+?)\s*$", body, flags=re.IGNORECASE)
+    match = re.match(r"^\s*run\s+benchmark\s+([a-zA-Z0-9_\-\s]+?)\s*$", body, flags=re.IGNORECASE)
     if not match:
         return None
 
