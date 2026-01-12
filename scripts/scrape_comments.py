@@ -48,6 +48,7 @@ ALLOWED_USERS = {
     "Omega359",
     "comphead",
     "klion26",
+    "gabotechs",
 }
 ALLOWED_BENCHMARKS_DF = {
     "tpch",
