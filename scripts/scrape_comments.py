@@ -87,6 +87,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "bitwise_kernel",
     "boolean_kernels",
     "buffer_bit_ops",
+    "builder",
     "cast_kernels",
     "comparison_kernels",
     "csv_writer",
