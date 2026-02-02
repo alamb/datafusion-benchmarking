@@ -96,7 +96,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "metadata",
     "json-reader",
     "take_kernels",
-    "sort_kernels",
+    "sort_kernel",
     "interleave_kernels",
     "union_array",
     "variant_builder",
