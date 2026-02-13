@@ -86,6 +86,7 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "substr_index",
     "character_length",
     "reset_plan_states",
+    "plan_reuse",,
 }
 ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_reader",
