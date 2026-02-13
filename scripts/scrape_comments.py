@@ -60,6 +60,7 @@ ALLOWED_USERS = {
     "Jefffrey",
     "etseidl",
 }
+
 ALLOWED_BENCHMARKS_DF = {
     "tpch",
     "tpch10",
@@ -72,6 +73,7 @@ ALLOWED_BENCHMARKS_DF = {
     "external_aggr",
     "tpcds",
 }
+
 ALLOWED_CRITERION_BENCHMARKS_DF = {
     "sql_planner",
     "in_list",
@@ -86,8 +88,10 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "substr_index",
     "character_length",
     "reset_plan_states",
+    "replace",
     "plan_reuse",
 }
+
 ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "arrow_reader",
     "arrow_reader_clickbench",
