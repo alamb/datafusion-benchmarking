@@ -58,6 +58,7 @@ ALLOWED_USERS = {
     "klion26",
     "gabotechs",
     "Jefffrey",
+    "etseidl",
 }
 ALLOWED_BENCHMARKS_DF = {
     "tpch",
