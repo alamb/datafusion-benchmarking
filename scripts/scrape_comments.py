@@ -9,6 +9,7 @@ Behavior:
    - "run benchmark <name1> <name2> ..." where each name is whitelisted
    - "show benchmark queue" to list pending jobs (with started time and elapsed for running jobs)
    - "cancel benchmark <id_or_url>" to cancel a queued or running benchmark (allowed users only)
+   - "cancel benchmarks" to cancel all queued and running benchmarks for the PR (allowed users only)
    - "clear benchmark queue" to remove all queued (non-running) jobs (allowed users only)
 3. Allowed users only: schedules jobs (writes jobs/*.sh) and reacts with 🚀.
 4. Non-allowed users get a whitelist notice. Unsupported benchmarks get a supported-list reply.
@@ -368,6 +369,22 @@ def find_job_by_comment_id(comment_id: str) -> Optional[str]:
     return None
 
 
+def find_jobs_by_pr_number(pr_number: str) -> list[str]:
+    """Search jobs/ for all .sh files whose name contains the given PR number."""
+    jobs_dir = "jobs"
+    if not os.path.isdir(jobs_dir):
+        return []
+    matches = []
+    for f in os.listdir(jobs_dir):
+        if not f.endswith(".sh"):
+            continue
+        name_no_ext = f[:-3]  # strip .sh
+        parts = re.split(r"[_\-]", name_no_ext)
+        if pr_number in parts:
+            matches.append(os.path.join(jobs_dir, f))
+    return matches
+
+
 def cancel_benchmark(cfg: RepoConfig, pr_number: str, login: str, comment_url: str, target_comment_id: str) -> None:
     """Cancel a queued or running benchmark job."""
     pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
@@ -423,6 +440,67 @@ def cancel_benchmark(cfg: RepoConfig, pr_number: str, login: str, comment_url: s
         f"(comment ID `{target_comment_id}`) ({comment_url})."
     )
     print(f"  Posting cancel confirmation to {pr_url}")
+    run_gh_api([
+        f"/repos/{cfg.repo}/issues/{pr_number}/comments",
+        "-X", "POST", "-f", f"body={body}",
+    ])
+    fetch_issue_comment_bodies(cfg, pr_number).append(body)
+
+
+def cancel_all_benchmarks(cfg: RepoConfig, pr_number: str, login: str, comment_url: str) -> None:
+    """Cancel all queued and running benchmark jobs for a given PR."""
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
+    if already_posted(cfg, pr_number, comment_url):
+        print(f"  Cancel all response already posted for PR {pr_number}, skipping")
+        return
+
+    job_paths = find_jobs_by_pr_number(pr_number)
+    if not job_paths:
+        body = (
+            f"🤖 Hi @{login}, no benchmark jobs found for this PR ({comment_url})."
+        )
+        print(f"  No jobs found for PR {pr_number}")
+        run_gh_api([
+            f"/repos/{cfg.repo}/issues/{pr_number}/comments",
+            "-X", "POST", "-f", f"body={body}",
+        ])
+        fetch_issue_comment_bodies(cfg, pr_number).append(body)
+        return
+
+    cancelled_running = 0
+    cancelled_queued = 0
+    for path in job_paths:
+        started_ts, pid = get_job_started_info(path)
+        if started_ts is not None and pid is not None:
+            # Running job — kill the process group
+            print(f"  Killing running job {os.path.basename(path)} (PID {pid})")
+            try:
+                os.killpg(pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError) as e:
+                print(f"  Could not kill process group {pid}: {e}")
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            try:
+                os.remove(path + ".started")
+            except FileNotFoundError:
+                pass
+            cancelled_running += 1
+        else:
+            # Queued job — just remove
+            print(f"  Removing queued job {os.path.basename(path)}")
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            cancelled_queued += 1
+
+    body = (
+        f"🤖 Hi @{login}, cancelled {cancelled_running} running and "
+        f"{cancelled_queued} queued benchmark job(s) for this PR ({comment_url})."
+    )
+    print(f"  Posting cancel all confirmation to {pr_url}")
     run_gh_api([
         f"/repos/{cfg.repo}/issues/{pr_number}/comments",
         "-X", "POST", "-f", f"body={body}",
@@ -763,6 +841,15 @@ def process_comment(cfg: RepoConfig, comment: Mapping, now: datetime) -> None:
     if body_lower == "show benchmark queue":
         print("  Detected queue request")
         post_queue(cfg, pr_number, login, comment_url)
+        return
+
+    # cancel benchmarks — cancel all jobs for this PR (allowed users only)
+    if body_lower == "cancel benchmarks":
+        print("  Detected cancel all benchmarks request")
+        if login not in ALLOWED_USERS:
+            post_user_notice(cfg, pr_number, login, comment_url)
+            return
+        cancel_all_benchmarks(cfg, pr_number, login, comment_url)
         return
 
     # cancel benchmark <id_or_url> (allowed users only)
