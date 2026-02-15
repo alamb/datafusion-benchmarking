@@ -7,7 +7,10 @@ Behavior:
 2. For each repo, fetches recent PR comments and matches trigger phrases:
    - "run benchmarks" (default suite)
    - "run benchmark <name1> <name2> ..." where each name is whitelisted
-   - "show benchmark queue" to list pending jobs
+   - "show benchmark queue" to list pending jobs (with started time and elapsed for running jobs)
+   - "cancel benchmark <id_or_url>" to cancel a queued or running benchmark (allowed users only)
+   - "cancel benchmarks" to cancel all queued and running benchmarks for the PR (allowed users only)
+   - "clear benchmark queue" to remove all queued (non-running) jobs (allowed users only)
 3. Allowed users only: schedules jobs (writes jobs/*.sh) and reacts with 🚀.
 4. Non-allowed users get a whitelist notice. Unsupported benchmarks get a supported-list reply.
 5. Queue requests reply with a markdown table of pending jobs.
@@ -36,13 +39,14 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from json import loads
 from shutil import which
-from typing import Iterable, List, Mapping, Sequence
+from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 
 # Repo configs
 ALLOWED_USERS = {
@@ -271,6 +275,277 @@ def list_job_files() -> list[str]:
     return sorted(files, key=lambda p: os.path.getmtime(p))
 
 
+def get_job_started_info(path: str) -> Tuple[Optional[str], Optional[int]]:
+    """Read a .started file and return (iso_timestamp, pid) or (None, None).
+
+    If the PID is no longer alive, cleans up the stale .started file.
+    """
+    started_path = path + ".started" if not path.endswith(".started") else path
+    if not os.path.isfile(started_path):
+        return None, None
+    try:
+        with open(started_path, "r") as f:
+            content = f.read().strip()
+        parts = content.split()
+        if len(parts) < 2:
+            return None, None
+        iso_ts = parts[0]
+        pid = int(parts[1])
+        # Check if PID is still alive
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            # Process is dead — stale .started file
+            print(f"  Cleaning up stale .started file: {started_path} (PID {pid} dead)")
+            os.remove(started_path)
+            return None, None
+        except PermissionError:
+            # Process exists but we can't signal it (still alive)
+            pass
+        return iso_ts, pid
+    except (FileNotFoundError, ValueError):
+        return None, None
+
+
+def format_elapsed(started_iso: str, now: datetime) -> str:
+    """Format elapsed time as 'Xm Ys'."""
+    try:
+        started = datetime.fromisoformat(started_iso.replace("Z", "+00:00"))
+        delta = now - started
+        total_seconds = int(delta.total_seconds())
+        if total_seconds < 0:
+            return "0s"
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        if minutes > 0:
+            return f"{minutes}m {seconds}s"
+        return f"{seconds}s"
+    except (ValueError, TypeError):
+        return "unknown"
+
+
+def parse_comment_id_from_input(raw: str) -> Optional[str]:
+    """Parse a comment ID from various input formats.
+
+    Handles:
+    - Plain numeric ID: "123456"
+    - HTML URL: "https://github.com/.../issues/NNN#issuecomment-123456"
+    - API URL: "https://api.github.com/repos/.../issues/comments/123456"
+    """
+    raw = raw.strip()
+
+    # Plain numeric ID
+    if raw.isdigit():
+        return raw
+
+    # #issuecomment-NNN in URL
+    m = re.search(r"#issuecomment-(\d+)", raw)
+    if m:
+        return m.group(1)
+
+    # API URL: /issues/comments/NNN
+    m = re.search(r"/issues/comments/(\d+)", raw)
+    if m:
+        return m.group(1)
+
+    return None
+
+
+def find_job_by_comment_id(comment_id: str) -> Optional[str]:
+    """Search jobs/ for a .sh file whose name contains the given comment ID."""
+    jobs_dir = "jobs"
+    if not os.path.isdir(jobs_dir):
+        return None
+    for f in os.listdir(jobs_dir):
+        if not f.endswith(".sh"):
+            continue
+        # Job files are named like: <pr>_<comment>.sh or arrow-<pr>-<comment>.sh
+        # The comment_id appears as the last numeric segment before .sh
+        name_no_ext = f[:-3]  # strip .sh
+        # Split by _ or - and check if comment_id is one of the parts
+        parts = re.split(r"[_\-]", name_no_ext)
+        if comment_id in parts:
+            return os.path.join(jobs_dir, f)
+    return None
+
+
+def find_jobs_by_pr_number(pr_number: str) -> list[str]:
+    """Search jobs/ for all .sh files whose name contains the given PR number."""
+    jobs_dir = "jobs"
+    if not os.path.isdir(jobs_dir):
+        return []
+    matches = []
+    for f in os.listdir(jobs_dir):
+        if not f.endswith(".sh"):
+            continue
+        name_no_ext = f[:-3]  # strip .sh
+        parts = re.split(r"[_\-]", name_no_ext)
+        if pr_number in parts:
+            matches.append(os.path.join(jobs_dir, f))
+    return matches
+
+
+def cancel_benchmark(cfg: RepoConfig, pr_number: str, login: str, comment_url: str, target_comment_id: str) -> None:
+    """Cancel a queued or running benchmark job."""
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
+    if already_posted(cfg, pr_number, comment_url):
+        print(f"  Cancel response already posted for PR {pr_number}, skipping")
+        return
+
+    job_path = find_job_by_comment_id(target_comment_id)
+    if job_path is None:
+        body = (
+            f"🤖 Hi @{login}, could not find a job matching comment ID `{target_comment_id}` "
+            f"in the queue ({comment_url})."
+        )
+        print(f"  No job found for comment ID {target_comment_id}")
+        run_gh_api([
+            f"/repos/{cfg.repo}/issues/{pr_number}/comments",
+            "-X", "POST", "-f", f"body={body}",
+        ])
+        fetch_issue_comment_bodies(cfg, pr_number).append(body)
+        return
+
+    job_name = os.path.basename(job_path)
+    started_ts, pid = get_job_started_info(job_path)
+
+    if started_ts is not None and pid is not None:
+        # Running job — kill the process group
+        print(f"  Killing running job {job_name} (PID {pid})")
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError) as e:
+            print(f"  Could not kill process group {pid}: {e}")
+        # Remove files
+        try:
+            os.remove(job_path)
+        except FileNotFoundError:
+            pass
+        try:
+            os.remove(job_path + ".started")
+        except FileNotFoundError:
+            pass
+        status = "running"
+    else:
+        # Queued job — just remove
+        print(f"  Removing queued job {job_name}")
+        try:
+            os.remove(job_path)
+        except FileNotFoundError:
+            pass
+        status = "queued"
+
+    body = (
+        f"🤖 Hi @{login}, cancelled {status} benchmark job `{job_name}` "
+        f"(comment ID `{target_comment_id}`) ({comment_url})."
+    )
+    print(f"  Posting cancel confirmation to {pr_url}")
+    run_gh_api([
+        f"/repos/{cfg.repo}/issues/{pr_number}/comments",
+        "-X", "POST", "-f", f"body={body}",
+    ])
+    fetch_issue_comment_bodies(cfg, pr_number).append(body)
+
+
+def cancel_all_benchmarks(cfg: RepoConfig, pr_number: str, login: str, comment_url: str) -> None:
+    """Cancel all queued and running benchmark jobs for a given PR."""
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
+    if already_posted(cfg, pr_number, comment_url):
+        print(f"  Cancel all response already posted for PR {pr_number}, skipping")
+        return
+
+    job_paths = find_jobs_by_pr_number(pr_number)
+    if not job_paths:
+        body = (
+            f"🤖 Hi @{login}, no benchmark jobs found for this PR ({comment_url})."
+        )
+        print(f"  No jobs found for PR {pr_number}")
+        run_gh_api([
+            f"/repos/{cfg.repo}/issues/{pr_number}/comments",
+            "-X", "POST", "-f", f"body={body}",
+        ])
+        fetch_issue_comment_bodies(cfg, pr_number).append(body)
+        return
+
+    cancelled_running = 0
+    cancelled_queued = 0
+    for path in job_paths:
+        started_ts, pid = get_job_started_info(path)
+        if started_ts is not None and pid is not None:
+            # Running job — kill the process group
+            print(f"  Killing running job {os.path.basename(path)} (PID {pid})")
+            try:
+                os.killpg(pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError) as e:
+                print(f"  Could not kill process group {pid}: {e}")
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            try:
+                os.remove(path + ".started")
+            except FileNotFoundError:
+                pass
+            cancelled_running += 1
+        else:
+            # Queued job — just remove
+            print(f"  Removing queued job {os.path.basename(path)}")
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            cancelled_queued += 1
+
+    body = (
+        f"🤖 Hi @{login}, cancelled {cancelled_running} running and "
+        f"{cancelled_queued} queued benchmark job(s) for this PR ({comment_url})."
+    )
+    print(f"  Posting cancel all confirmation to {pr_url}")
+    run_gh_api([
+        f"/repos/{cfg.repo}/issues/{pr_number}/comments",
+        "-X", "POST", "-f", f"body={body}",
+    ])
+    fetch_issue_comment_bodies(cfg, pr_number).append(body)
+
+
+def clear_benchmark_queue(cfg: RepoConfig, pr_number: str, login: str, comment_url: str) -> None:
+    """Remove all queued (non-running) jobs from the queue."""
+    pr_url = f"https://github.com/{cfg.repo}/pull/{pr_number}"
+    if already_posted(cfg, pr_number, comment_url):
+        print(f"  Clear queue response already posted for PR {pr_number}, skipping")
+        return
+
+    job_files = list_job_files()
+    removed = 0
+    skipped = 0
+    for path in job_files:
+        started_ts, pid = get_job_started_info(path)
+        if started_ts is not None and pid is not None:
+            # Running — skip
+            skipped += 1
+            print(f"  Skipping running job {os.path.basename(path)}")
+            continue
+        print(f"  Removing queued job {os.path.basename(path)}")
+        try:
+            os.remove(path)
+            removed += 1
+        except FileNotFoundError:
+            pass
+
+    parts = [f"🤖 Hi @{login}, cleared the benchmark queue ({comment_url})."]
+    parts.append(f"Removed {removed} queued job(s).")
+    if skipped:
+        parts.append(f"Skipped {skipped} running job(s).")
+
+    body = " ".join(parts)
+    print(f"  Posting clear queue confirmation to {pr_url}")
+    run_gh_api([
+        f"/repos/{cfg.repo}/issues/{pr_number}/comments",
+        "-X", "POST", "-f", f"body={body}",
+    ])
+    fetch_issue_comment_bodies(cfg, pr_number).append(body)
+
+
 @dataclass
 class BenchmarkRequest:
     """Parsed benchmark trigger from a GitHub comment."""
@@ -497,6 +772,7 @@ def post_queue(cfg: RepoConfig, pr_number: str, login: str, comment_url: str) ->
         print(f"  Queue response already posted for PR {pr_number}, skipping")
         return
 
+    now = datetime.now(timezone.utc)
     job_files = list_job_files()
     lines: list[str] = [
         f"🤖 Hi @{login}, you asked to view the benchmark queue ({comment_url}).",
@@ -505,14 +781,25 @@ def post_queue(cfg: RepoConfig, pr_number: str, login: str, comment_url: str) ->
     if not job_files:
         lines.append("No pending jobs in `jobs/`.")
     else:
-        lines.append("| Job | User | Benchmarks | Comment |")
-        lines.append("| --- | --- | --- | --- |")
+        lines.append("| Job | User | Benchmarks | Comment | Started | Status |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
         for path in job_files:
             user, benches, comment = parse_job_metadata(path)
             job_name = os.path.basename(path)
             comment_link = comment if comment else "unknown"
             benches_str = benches if benches else "unknown"
-            lines.append(f"| `{job_name}` | {user} | {benches_str} | `{comment_link}` |")
+            started_ts, pid = get_job_started_info(path)
+            if started_ts is not None:
+                elapsed = format_elapsed(started_ts, now)
+                started_col = started_ts
+                status_col = f"**running** ({elapsed})"
+            else:
+                started_col = "-"
+                status_col = "queued"
+            lines.append(
+                f"| `{job_name}` | {user} | {benches_str} | `{comment_link}` "
+                f"| {started_col} | {status_col} |"
+            )
 
     body = "\n".join(lines)
     print(f"  Posting queue to {pr_url} for user @{login}")
@@ -549,9 +836,44 @@ def process_comment(cfg: RepoConfig, comment: Mapping, now: datetime) -> None:
         print(f"  Could not extract PR number from URL {issue_url}")
         return
 
-    if body.strip().lower() == "show benchmark queue":
+    body_lower = body.strip().lower()
+
+    if body_lower == "show benchmark queue":
         print("  Detected queue request")
         post_queue(cfg, pr_number, login, comment_url)
+        return
+
+    # cancel benchmarks — cancel all jobs for this PR (allowed users only)
+    if body_lower == "cancel benchmarks":
+        print("  Detected cancel all benchmarks request")
+        if login not in ALLOWED_USERS:
+            post_user_notice(cfg, pr_number, login, comment_url)
+            return
+        cancel_all_benchmarks(cfg, pr_number, login, comment_url)
+        return
+
+    # cancel benchmark <id_or_url> (allowed users only)
+    cancel_match = re.match(r"^\s*cancel\s+benchmark\s+(.+?)\s*$", body.strip(), flags=re.IGNORECASE)
+    if cancel_match:
+        print("  Detected cancel benchmark request")
+        if login not in ALLOWED_USERS:
+            post_user_notice(cfg, pr_number, login, comment_url)
+            return
+        raw_id = cancel_match.group(1)
+        target_comment_id = parse_comment_id_from_input(raw_id)
+        if target_comment_id is None:
+            print(f"  Could not parse comment ID from: {raw_id}")
+            return
+        cancel_benchmark(cfg, pr_number, login, comment_url, target_comment_id)
+        return
+
+    # clear benchmark queue (allowed users only)
+    if body_lower == "clear benchmark queue":
+        print("  Detected clear benchmark queue request")
+        if login not in ALLOWED_USERS:
+            post_user_notice(cfg, pr_number, login, comment_url)
+            return
+        clear_benchmark_queue(cfg, pr_number, login, comment_url)
         return
 
     request = detect_benchmark(cfg, body)
