@@ -33,6 +33,9 @@ BENCH_NAME=${BENCH_NAME:-"sql_planner"}
 BENCH_FILTER=${BENCH_FILTER:-""}
 BENCH_COMMAND="cargo bench --features=parquet --bench $BENCH_NAME"
 
+## Timeout for each benchmark run in seconds (default 25 minutes)
+BENCHMARK_TIMEOUT=${BENCHMARK_TIMEOUT:-1500}
+
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --release"
 
@@ -71,7 +74,19 @@ rm -rf target/criterion/
 #####################
 # Run on test branch.
 ####################
-$BENCH_COMMAND -- --save-baseline ${BENCH_BRANCH_NAME} ${BENCH_FILTER}
+echo "** Pre-compiling benchmarks... **"
+$BENCH_COMMAND --no-run
+echo "** Running benchmarks on branch... **"
+set +e
+timeout ${BENCHMARK_TIMEOUT} $BENCH_COMMAND -- --save-baseline ${BENCH_BRANCH_NAME} ${BENCH_FILTER}
+rc=$?
+set -e
+if [ $rc -eq 124 ]; then
+    echo "TIMEOUT: Benchmark '${BENCH_NAME}' branch exceeded ${BENCHMARK_TIMEOUT}s limit"
+    exit 124
+elif [ $rc -ne 0 ]; then
+    exit $rc
+fi
 
 #####################
 # Run on main (merge base)
@@ -79,7 +94,19 @@ $BENCH_COMMAND -- --save-baseline ${BENCH_BRANCH_NAME} ${BENCH_FILTER}
 git reset --hard
 git clean -f -d
 git checkout $MERGE_BASE
-$BENCH_COMMAND -- --save-baseline main  ${BENCH_FILTER}
+echo "** Pre-compiling benchmarks for main... **"
+$BENCH_COMMAND --no-run
+echo "** Running benchmarks on main... **"
+set +e
+timeout ${BENCHMARK_TIMEOUT} $BENCH_COMMAND -- --save-baseline main  ${BENCH_FILTER}
+rc=$?
+set -e
+if [ $rc -eq 124 ]; then
+    echo "TIMEOUT: Benchmark '${BENCH_NAME}' main exceeded ${BENCHMARK_TIMEOUT}s limit"
+    exit 124
+elif [ $rc -ne 0 ]; then
+    exit $rc
+fi
 
 
 ## Compare

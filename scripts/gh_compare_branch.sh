@@ -34,6 +34,9 @@ fi
 ## Default suite is tpch and clickbench
 BENCHMARKS=${BENCHMARKS:-"tpch_mem clickbench_partitioned clickbench_extended"}
 
+## Timeout for each benchmark run in seconds (default 25 minutes)
+BENCHMARK_TIMEOUT=${BENCHMARK_TIMEOUT:-1500}
+
 
 ## Command used to pre-warm (aka precompile) the directories
 CARGO_COMMAND="cargo run --release"
@@ -110,11 +113,29 @@ for bench in $BENCHMARKS ; do
     ./bench.sh data $bench || true
     echo "** Running $bench baseline (merge-base from main)... **"
     export DATAFUSION_DIR=~/arrow-datafusion3
-    ./bench.sh run $bench
+    set +e
+    timeout ${BENCHMARK_TIMEOUT} ./bench.sh run $bench
+    rc=$?
+    set -e
+    if [ $rc -eq 124 ]; then
+        echo "TIMEOUT: Benchmark '$bench' baseline exceeded ${BENCHMARK_TIMEOUT}s limit"
+        continue
+    elif [ $rc -ne 0 ]; then
+        exit $rc
+    fi
     ## Run against branch
     echo "** Running $bench branch... **"
     export DATAFUSION_DIR=~/arrow-datafusion2
-    ./bench.sh run $bench
+    set +e
+    timeout ${BENCHMARK_TIMEOUT} ./bench.sh run $bench
+    rc=$?
+    set -e
+    if [ $rc -eq 124 ]; then
+        echo "TIMEOUT: Benchmark '$bench' branch exceeded ${BENCHMARK_TIMEOUT}s limit"
+        continue
+    elif [ $rc -ne 0 ]; then
+        exit $rc
+    fi
 
 done
 
