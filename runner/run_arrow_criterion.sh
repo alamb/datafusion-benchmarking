@@ -36,7 +36,7 @@ cargo update
 echo "=== Cloning merge-base ==="
 git clone --depth=200 https://github.com/apache/arrow-rs.git "${BASE_DIR}"
 cd "${BASE_DIR}"
-git checkout "${MERGE_BASE}"
+git -c advice.detachedHead=false checkout "${MERGE_BASE}"
 git submodule update --init
 cargo update
 

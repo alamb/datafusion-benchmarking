@@ -37,7 +37,7 @@ BRANCH_PID=$!
 echo "=== Cloning merge-base ==="
 git clone --depth=200 https://github.com/apache/datafusion.git "${BASE_DIR}"
 cd "${BASE_DIR}"
-git checkout "${MERGE_BASE}"
+git -c advice.detachedHead=false checkout "${MERGE_BASE}"
 
 cd benchmarks
 ${CARGO_COMMAND} --bin dfbench >> /tmp/base_build.log 2>&1 &
@@ -65,7 +65,7 @@ echo "=== Builds complete ==="
 echo "=== Setting up bench runner ==="
 git clone --depth=200 https://github.com/apache/datafusion.git "${BENCH_DIR}"
 cd "${BENCH_DIR}"
-git checkout origin/main
+git -c advice.detachedHead=false checkout origin/main
 cd benchmarks
 
 rm -rf results/*
