@@ -34,8 +34,9 @@ const githubSecret = new k8s.core.v1.Secret("github-token", {
 }, { provider: k8sProvider, dependsOn: [ns] });
 
 // Controller StatefulSet
-const controllerImage = pulumi.interpolate`${registryUrl}/controller:latest`;
-const runnerImage = pulumi.interpolate`${registryUrl}/runner:latest`;
+const imageTag = config.get("imageTag") || "latest";
+const controllerImage = pulumi.interpolate`${registryUrl}/controller:${imageTag}`;
+const runnerImage = pulumi.interpolate`${registryUrl}/runner:${imageTag}`;
 
 export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-controller", {
   metadata: {
