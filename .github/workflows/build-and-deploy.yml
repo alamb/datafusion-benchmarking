@@ -97,6 +97,9 @@ jobs:
   deploy:
     needs: [build-controller, build-runner]
     if: always() && !failure() && !cancelled()
+    concurrency:
+      group: pulumi-deploy-services
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
