@@ -1,3 +1,9 @@
+//! Benchmark trigger detection and per-repo allowlists.
+//!
+//! Parses PR comment bodies for "run benchmark …" trigger phrases, validates
+//! benchmark names against repo-specific allowlists, and classifies them by
+//! [`JobType`].
+
 use std::collections::HashSet;
 
 use once_cell::sync::Lazy;
@@ -111,6 +117,7 @@ static TRIGGER_DEFAULT_RE: Lazy<Regex> =
 static TRIGGER_NAMED_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)^\s*run\s+benchmark\s+([a-zA-Z0-9_\-\s]+?)\s*$").unwrap());
 
+/// Per-repo benchmark allowlists. Maps a GitHub repo to its valid standard and criterion benchmarks.
 pub struct RepoConfig {
     pub repo: String,
     pub allowed_standard: &'static HashSet<&'static str>,
@@ -118,6 +125,7 @@ pub struct RepoConfig {
 }
 
 impl RepoConfig {
+    /// Factory: returns the benchmark config for a known repo, or `None`.
     pub fn for_repo(repo: &str) -> Option<Self> {
         match repo {
             "apache/datafusion" => Some(Self {
@@ -134,6 +142,7 @@ impl RepoConfig {
         }
     }
 
+    /// Determine the [`JobType`] for a benchmark name, or `None` if not recognized.
     pub fn classify_benchmark(&self, name: &str) -> Option<JobType> {
         if self.allowed_standard.contains(name) {
             Some(JobType::Standard)
@@ -152,6 +161,7 @@ impl RepoConfig {
 // Empty set for repos with no standard benchmarks
 static EMPTY_SET: Lazy<HashSet<&str>> = Lazy::new(HashSet::new);
 
+/// Extract `KEY=value` lines that match `^[A-Z_][A-Z0-9_]*=[a-zA-Z0-9._-]+$`.
 fn parse_env_vars(lines: &[&str]) -> Vec<String> {
     lines
         .iter()
@@ -161,6 +171,10 @@ fn parse_env_vars(lines: &[&str]) -> Vec<String> {
         .collect()
 }
 
+/// Parse a PR comment body into a [`BenchmarkRequest`] if it matches a trigger pattern.
+///
+/// Recognizes `run benchmarks` (default suite) and `run benchmark <name> [<name>...]`.
+/// Extra lines after the trigger are scanned for environment variable overrides.
 pub fn detect_benchmark(repo_cfg: &RepoConfig, body: &str) -> Option<BenchmarkRequest> {
     let lines: Vec<&str> = body.trim().lines().collect();
     if lines.is_empty() {
@@ -198,16 +212,20 @@ pub fn detect_benchmark(repo_cfg: &RepoConfig, body: &str) -> Option<BenchmarkRe
     }
 }
 
+/// Returns `true` if the first line starts with "run benchmark" (case-insensitive).
+/// Used to detect malformed or unauthorized trigger attempts.
 pub fn is_benchmark_trigger(body: &str) -> bool {
     let first_line = body.trim().lines().next().unwrap_or("");
     let lower = first_line.trim().to_lowercase();
     lower.starts_with("run benchmark")
 }
 
+/// Returns `true` if the comment body is exactly "show benchmark queue" (case-insensitive).
 pub fn is_queue_request(body: &str) -> bool {
     body.trim().eq_ignore_ascii_case("show benchmark queue")
 }
 
+/// Build a markdown message listing all valid benchmarks for a repo, highlighting any unsupported names.
 pub fn supported_benchmarks_message(repo_cfg: &RepoConfig, requested: &[String]) -> String {
     let standard: Vec<&str> = {
         let mut v: Vec<&str> = repo_cfg.allowed_standard.iter().copied().collect();
@@ -259,6 +277,7 @@ pub fn supported_benchmarks_message(repo_cfg: &RepoConfig, requested: &[String])
     )
 }
 
+/// Format the allowlist as a comma-separated list of GitHub profile links.
 pub fn allowed_users_markdown() -> String {
     let mut users: Vec<&&str> = ALLOWED_USERS.iter().collect();
     users.sort();

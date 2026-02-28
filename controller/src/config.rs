@@ -1,5 +1,26 @@
+//! Controller configuration loaded from environment variables.
+
 use anyhow::{Context, Result};
 
+/// Controller configuration loaded from environment variables.
+///
+/// ```text
+/// Variable                  Default                              Required
+/// ─────────────────────────────────────────────────────────────────────────
+/// GITHUB_TOKEN              —                                    yes
+/// RUNNER_IMAGE              —                                    yes
+/// DATABASE_URL              sqlite:///data/benchmark.db           no
+/// WATCHED_REPOS             apache/datafusion:apache/arrow-rs     no
+/// POLL_INTERVAL_SECS        30                                    no
+/// RECONCILE_INTERVAL_SECS   10                                    no
+/// K8S_NAMESPACE             benchmarking                          no
+/// DEFAULT_CPU               30                                    no
+/// DEFAULT_MEMORY            60Gi                                  no
+/// EPHEMERAL_STORAGE         100Gi                                 no
+/// ACTIVE_DEADLINE_SECS      7200                                  no
+/// TTL_AFTER_FINISHED_SECS   3600                                  no
+/// STORAGE_CLASS             hyperdisk-balanced                    no
+/// ```
 #[derive(Debug, Clone)]
 pub struct Config {
     pub github_token: String,
@@ -11,9 +32,18 @@ pub struct Config {
     pub runner_image: String,
     pub default_cpu: String,
     pub default_memory: String,
+    /// Ephemeral storage request for benchmark pods (e.g. `"100Gi"`).
+    pub ephemeral_storage: String,
+    /// Maximum wall-clock seconds a K8s Job may run before being killed.
+    pub active_deadline_secs: i64,
+    /// Seconds after completion before the K8s Job object is garbage-collected.
+    pub ttl_after_finished_secs: i32,
+    /// StorageClass for the ephemeral workspace volume.
+    pub storage_class: String,
 }
 
 impl Config {
+    /// Load configuration from environment variables. Fails if required vars are missing.
     pub fn from_env() -> Result<Self> {
         Ok(Self {
             github_token: env_required("GITHUB_TOKEN")?,
@@ -33,14 +63,24 @@ impl Config {
             runner_image: env_required("RUNNER_IMAGE")?,
             default_cpu: env_or("DEFAULT_CPU", "30"),
             default_memory: env_or("DEFAULT_MEMORY", "60Gi"),
+            ephemeral_storage: env_or("EPHEMERAL_STORAGE", "100Gi"),
+            active_deadline_secs: env_or("ACTIVE_DEADLINE_SECS", "7200")
+                .parse()
+                .context("ACTIVE_DEADLINE_SECS")?,
+            ttl_after_finished_secs: env_or("TTL_AFTER_FINISHED_SECS", "3600")
+                .parse()
+                .context("TTL_AFTER_FINISHED_SECS")?,
+            storage_class: env_or("STORAGE_CLASS", "hyperdisk-balanced"),
         })
     }
 }
 
+/// Read a required environment variable, returning an error if missing.
 fn env_required(key: &str) -> Result<String> {
     std::env::var(key).with_context(|| format!("missing required env var {key}"))
 }
 
+/// Read an environment variable with a fallback default.
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }

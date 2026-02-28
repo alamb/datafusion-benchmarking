@@ -1,10 +1,16 @@
+//! SQLite persistence layer.
+//!
+//! Manages benchmark jobs, seen-comment deduplication, and per-repo scan
+//! timestamps. All queries use the [`sqlx`] async SQLite driver.
+
 use anyhow::Result;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::str::FromStr;
 
-use crate::models::{BenchmarkJob, JobInsert};
+use crate::models::{BenchmarkJob, JobInsert, JobStatus};
 
+/// Open (or create) the SQLite database and run migrations. Uses WAL journal mode.
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::from_str(database_url)?
         .create_if_missing(true)
@@ -23,6 +29,7 @@ pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     Ok(pool)
 }
 
+/// Check if a GitHub comment ID has already been processed.
 pub async fn is_comment_seen(pool: &SqlitePool, comment_id: i64) -> Result<bool> {
     let row =
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM seen_comments WHERE comment_id = ?")
@@ -32,6 +39,7 @@ pub async fn is_comment_seen(pool: &SqlitePool, comment_id: i64) -> Result<bool>
     Ok(row > 0)
 }
 
+/// Record a comment ID so it won't be processed again (INSERT OR IGNORE).
 pub async fn mark_comment_seen(
     pool: &SqlitePool,
     comment_id: i64,
@@ -53,6 +61,7 @@ pub async fn mark_comment_seen(
     Ok(())
 }
 
+/// Insert a new benchmark job with status `pending`. Returns the new row ID.
 pub async fn insert_job(pool: &SqlitePool, job: &JobInsert<'_>) -> Result<i64> {
     let result = sqlx::query(
         "INSERT INTO benchmark_jobs (comment_id, repo, pr_number, pr_url, login, benchmarks, env_vars, job_type) \
@@ -71,6 +80,7 @@ pub async fn insert_job(pool: &SqlitePool, job: &JobInsert<'_>) -> Result<i64> {
     Ok(result.last_insert_rowid())
 }
 
+/// Return up to 5 oldest `pending` jobs, ordered by ID.
 pub async fn get_pending_jobs(pool: &SqlitePool) -> Result<Vec<BenchmarkJob>> {
     let jobs = sqlx::query_as::<_, BenchmarkJob>(
         "SELECT * FROM benchmark_jobs WHERE status = 'pending' ORDER BY id LIMIT 5",
@@ -80,19 +90,22 @@ pub async fn get_pending_jobs(pool: &SqlitePool) -> Result<Vec<BenchmarkJob>> {
     Ok(jobs)
 }
 
+/// Return all jobs with status `running`.
 pub async fn get_active_jobs(pool: &SqlitePool) -> Result<Vec<BenchmarkJob>> {
     let jobs = sqlx::query_as::<_, BenchmarkJob>(
-        "SELECT * FROM benchmark_jobs WHERE status IN ('creating', 'running') ORDER BY id",
+        "SELECT * FROM benchmark_jobs WHERE status = 'running' ORDER BY id",
     )
     .fetch_all(pool)
     .await?;
     Ok(jobs)
 }
 
+/// Transition a job's status. Optionally sets `k8s_job_name` and `error_message`
+/// (uses COALESCE to keep existing values when `None`).
 pub async fn update_job_status(
     pool: &SqlitePool,
     job_id: i64,
-    status: &str,
+    status: JobStatus,
     k8s_job_name: Option<&str>,
     error_message: Option<&str>,
 ) -> Result<()> {
@@ -100,7 +113,7 @@ pub async fn update_job_status(
         "UPDATE benchmark_jobs SET status = ?, k8s_job_name = COALESCE(?, k8s_job_name), \
          error_message = COALESCE(?, error_message), updated_at = datetime('now') WHERE id = ?",
     )
-    .bind(status)
+    .bind(status.as_str())
     .bind(k8s_job_name)
     .bind(error_message)
     .bind(job_id)
@@ -109,6 +122,7 @@ pub async fn update_job_status(
     Ok(())
 }
 
+/// Get the ISO 8601 timestamp of the last successful comment scan for a repo.
 pub async fn get_last_scan(pool: &SqlitePool, repo: &str) -> Result<Option<String>> {
     let row = sqlx::query_scalar::<_, String>("SELECT last_scan_at FROM scan_state WHERE repo = ?")
         .bind(repo)
@@ -117,6 +131,7 @@ pub async fn get_last_scan(pool: &SqlitePool, repo: &str) -> Result<Option<Strin
     Ok(row)
 }
 
+/// Upsert the last scan timestamp for a repo.
 pub async fn set_last_scan(pool: &SqlitePool, repo: &str, timestamp: &str) -> Result<()> {
     sqlx::query(
         "INSERT INTO scan_state (repo, last_scan_at) VALUES (?, ?) \
@@ -129,6 +144,7 @@ pub async fn set_last_scan(pool: &SqlitePool, repo: &str, timestamp: &str) -> Re
     Ok(())
 }
 
+/// Return all non-terminal jobs (not `completed` or `failed`) for the queue display.
 pub async fn get_queue_summary(pool: &SqlitePool) -> Result<Vec<BenchmarkJob>> {
     let jobs = sqlx::query_as::<_, BenchmarkJob>(
         "SELECT * FROM benchmark_jobs WHERE status NOT IN ('completed', 'failed') ORDER BY id",

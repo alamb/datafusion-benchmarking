@@ -1,3 +1,8 @@
+//! GitHub comment poller.
+//!
+//! Periodically fetches new PR comments from watched repositories, detects
+//! benchmark trigger phrases, and inserts corresponding jobs into SQLite.
+
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use sqlx::SqlitePool;
@@ -12,6 +17,21 @@ use crate::db;
 use crate::github::GitHubClient;
 use crate::models::{GitHubComment, JobInsert};
 
+/// Infinite loop that polls GitHub for new PR comments on each watched repo.
+///
+/// ```text
+/// ┌──────────────────────────────────────────────┐
+/// │  poll_loop (every POLL_INTERVAL_SECS)        │
+/// │  ┌────────────────────────────────────────┐  │
+/// │  │ for each repo in WATCHED_REPOS         │  │
+/// │  │   fetch comments since last_scan       │  │
+/// │  │   for each unseen comment              │  │
+/// │  │     "show benchmark queue" → reply      │  │
+/// │  │     "run benchmark X"     → insert job  │  │
+/// │  │   update last_scan                     │  │
+/// │  └────────────────────────────────────────┘  │
+/// └──────────────────────────────────────────────┘
+/// ```
 pub async fn poll_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
     let interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
     loop {
@@ -24,6 +44,7 @@ pub async fn poll_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
     }
 }
 
+/// Fetch and process recent comments for a single repo.
 async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str) -> Result<()> {
     let repo_cfg = match RepoConfig::for_repo(repo) {
         Some(c) => c,
@@ -56,6 +77,17 @@ async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str) -> Result<(
     Ok(())
 }
 
+/// Build the "not allowed" reply posted when a non-whitelisted user triggers a benchmark.
+fn not_allowed_message(login: &str, comment_url: &str) -> String {
+    format!(
+        "Hi @{login}, thanks for the request ({comment_url}). \
+         Only whitelisted users can trigger benchmarks. \
+         Allowed users: {}.",
+        allowed_users_markdown()
+    )
+}
+
+/// Handle a single comment: skip if seen, detect triggers, insert jobs.
 async fn process_comment(
     pool: &SqlitePool,
     gh: &GitHubClient,
@@ -66,34 +98,30 @@ async fn process_comment(
         return Ok(());
     }
 
-    let body = comment.body.as_deref().unwrap_or("");
-    let login = comment
-        .user
-        .as_ref()
-        .map(|u| u.login.as_str())
-        .unwrap_or("");
-    let comment_url = comment.html_url.as_deref().unwrap_or("");
-    let created_at = comment.created_at.as_deref().unwrap_or("");
-    let issue_url = comment.issue_url.as_deref().unwrap_or("");
+    let body = comment.body_text();
+    let login = comment.login();
+    let comment_url = comment.url();
+    let created_at = comment.created_at_str();
+    let issue_url = comment.issue_url_str();
 
-    let pr_number = pr_number_from_url(issue_url);
-    if pr_number == 0 {
+    let Some(pr_number) = pr_number_from_url(issue_url) else {
         return Ok(());
-    }
+    };
+
+    // Mark seen unconditionally — we already bailed if previously seen.
+    db::mark_comment_seen(
+        pool,
+        comment.id,
+        &repo_cfg.repo,
+        pr_number,
+        login,
+        created_at,
+    )
+    .await?;
 
     // Handle queue requests
     if is_queue_request(body) {
         info!(pr_number, login, "queue request");
-        db::mark_comment_seen(
-            pool,
-            comment.id,
-            &repo_cfg.repo,
-            pr_number,
-            login,
-            created_at,
-        )
-        .await?;
-
         let jobs = db::get_queue_summary(pool).await?;
         let msg = format_queue_message(login, comment_url, &jobs);
         gh.post_comment(&repo_cfg.repo, pr_number, &msg).await?;
@@ -101,28 +129,11 @@ async fn process_comment(
     }
 
     // Try to detect benchmark trigger
-    let request = detect_benchmark(repo_cfg, body);
-
-    if request.is_none() {
+    let Some(request) = detect_benchmark(repo_cfg, body) else {
         // Check if it looks like a failed trigger attempt
         if is_benchmark_trigger(body) {
-            db::mark_comment_seen(
-                pool,
-                comment.id,
-                &repo_cfg.repo,
-                pr_number,
-                login,
-                created_at,
-            )
-            .await?;
-
             if !ALLOWED_USERS.contains(login) {
-                let msg = format!(
-                    "Hi @{login}, thanks for the request ({comment_url}). \
-                     Only whitelisted users can trigger benchmarks. \
-                     Allowed users: {}.",
-                    allowed_users_markdown()
-                );
+                let msg = not_allowed_message(login, comment_url);
                 gh.post_comment(&repo_cfg.repo, pr_number, &msg).await?;
             } else {
                 let requested: Vec<String> = body
@@ -142,41 +153,16 @@ async fn process_comment(
             }
         }
         return Ok(());
-    }
-
-    let request = request.unwrap();
+    };
 
     // User must be allowed
     if !ALLOWED_USERS.contains(login) {
-        db::mark_comment_seen(
-            pool,
-            comment.id,
-            &repo_cfg.repo,
-            pr_number,
-            login,
-            created_at,
-        )
-        .await?;
-        let msg = format!(
-            "Hi @{login}, thanks for the request ({comment_url}). \
-             Only whitelisted users can trigger benchmarks. Allowed users: {}.",
-            allowed_users_markdown()
-        );
+        let msg = not_allowed_message(login, comment_url);
         gh.post_comment(&repo_cfg.repo, pr_number, &msg).await?;
         return Ok(());
     }
 
     info!(pr_number, login, benchmarks = ?request.benchmarks, "scheduling benchmark");
-
-    db::mark_comment_seen(
-        pool,
-        comment.id,
-        &repo_cfg.repo,
-        pr_number,
-        login,
-        created_at,
-    )
-    .await?;
 
     let pr_url = format!("https://github.com/{}/pull/{}", repo_cfg.repo, pr_number);
     let benchmarks_json = serde_json::to_string(&request.benchmarks)?;
@@ -233,14 +219,16 @@ async fn process_comment(
     Ok(())
 }
 
-fn pr_number_from_url(url: &str) -> i64 {
+/// Extract the PR/issue number from a GitHub `issue_url` (last path segment).
+/// Returns `None` if the URL doesn't end with a numeric segment.
+fn pr_number_from_url(url: &str) -> Option<i64> {
     url.trim_end_matches('/')
         .rsplit('/')
         .next()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
 }
 
+/// Build a markdown table of pending/active jobs for a "show benchmark queue" reply.
 fn format_queue_message(
     login: &str,
     comment_url: &str,

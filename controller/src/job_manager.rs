@@ -1,3 +1,9 @@
+//! Kubernetes Job reconciliation loop.
+//!
+//! Drives benchmark jobs through their lifecycle: creates K8s Jobs for
+//! pending rows, polls running jobs for completion, and posts results back
+//! to GitHub.
+
 use std::collections::BTreeMap;
 
 use anyhow::Result;
@@ -16,8 +22,27 @@ use tracing::{info, warn};
 use crate::config::Config;
 use crate::db;
 use crate::github::GitHubClient;
-use crate::models::BenchmarkJob;
+use crate::models::{BenchmarkJob, JobStatus};
 
+/// Bit mask applied to `comment_id` to shorten the K8s Job name suffix.
+const JOB_NAME_HASH_MASK: u64 = 0xFFFF;
+
+/// Infinite reconciliation loop that drives jobs through their lifecycle.
+///
+/// ```text
+/// ┌─────────────────────────────────────────────────────────┐
+/// │  reconcile_loop (every RECONCILE_INTERVAL_SECS)         │
+/// │                                                         │
+/// │  reconcile_pending():                                   │
+/// │    pending jobs ──► create K8s Job ──► status = running │
+/// │                 └─► on error       ──► status = failed  │
+/// │                                                         │
+/// │  reconcile_active():                                    │
+/// │    running jobs ──► K8s succeeded  ──► status = completed│
+/// │                 ├─► K8s failed     ──► status = failed  │
+/// │                 └─► K8s 404        ──► status = failed  │
+/// └─────────────────────────────────────────────────────────┘
+/// ```
 pub async fn reconcile_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
     let interval = tokio::time::Duration::from_secs(config.reconcile_interval_secs);
 
@@ -40,6 +65,7 @@ pub async fn reconcile_loop(config: Config, pool: SqlitePool, gh: GitHubClient) 
     }
 }
 
+/// Create K8s Jobs for all pending benchmark rows and transition them to running/failed.
 async fn reconcile_pending(
     config: &Config,
     pool: &SqlitePool,
@@ -53,7 +79,8 @@ async fn reconcile_pending(
         match create_k8s_job(config, &jobs_api, &job).await {
             Ok(k8s_name) => {
                 info!(job_id = job.id, k8s_name = %k8s_name, "created k8s job");
-                db::update_job_status(pool, job.id, "running", Some(&k8s_name), None).await?;
+                db::update_job_status(pool, job.id, JobStatus::Running, Some(&k8s_name), None)
+                    .await?;
 
                 // Post "running" comment
                 let msg = format!(
@@ -70,7 +97,7 @@ async fn reconcile_pending(
                 db::update_job_status(
                     pool,
                     job.id,
-                    "failed",
+                    JobStatus::Failed,
                     None,
                     Some(&format!("Failed to create K8s Job: {e}")),
                 )
@@ -87,6 +114,7 @@ async fn reconcile_pending(
     Ok(())
 }
 
+/// Check K8s Job status for all running benchmark rows and transition to completed/failed.
 async fn reconcile_active(
     config: &Config,
     pool: &SqlitePool,
@@ -110,11 +138,12 @@ async fn reconcile_active(
 
                 if succeeded > 0 {
                     info!(job_id = job.id, "job completed successfully");
-                    db::update_job_status(pool, job.id, "completed", None, None).await?;
+                    db::update_job_status(pool, job.id, JobStatus::Completed, None, None).await?;
                 } else if failed > 0 {
                     info!(job_id = job.id, "job failed");
                     let error_msg = read_pod_error(kube, config, &k8s_name).await;
-                    db::update_job_status(pool, job.id, "failed", None, Some(&error_msg)).await?;
+                    db::update_job_status(pool, job.id, JobStatus::Failed, None, Some(&error_msg))
+                        .await?;
 
                     let msg = format!(
                         "Benchmark job `{k8s_name}` failed for PR #{}.\n\n\
@@ -132,8 +161,14 @@ async fn reconcile_active(
                     job_id = job.id,
                     k8s_name, "k8s job not found, marking failed"
                 );
-                db::update_job_status(pool, job.id, "failed", None, Some("K8s Job not found"))
-                    .await?;
+                db::update_job_status(
+                    pool,
+                    job.id,
+                    JobStatus::Failed,
+                    None,
+                    Some("K8s Job not found"),
+                )
+                .await?;
             }
             Err(e) => {
                 warn!(job_id = job.id, error = %e, "error checking k8s job");
@@ -144,6 +179,7 @@ async fn reconcile_active(
     Ok(())
 }
 
+/// Fetch the last 50 lines of logs from the first pod of a failed K8s Job.
 async fn read_pod_error(kube: &KubeClient, config: &Config, job_name: &str) -> String {
     use k8s_openapi::api::core::v1::Pod;
     let pods_api: Api<Pod> = Api::namespaced(kube.clone(), &config.k8s_namespace);
@@ -176,18 +212,32 @@ async fn read_pod_error(kube: &KubeClient, config: &Config, job_name: &str) -> S
     }
 }
 
+/// Shorthand for constructing a plain-value [`EnvVar`].
+fn env_var(name: &str, value: impl Into<String>) -> EnvVar {
+    EnvVar {
+        name: name.into(),
+        value: Some(value.into()),
+        ..Default::default()
+    }
+}
+
+/// Build and submit a K8s Job spec for a benchmark row.
+///
+/// Resource defaults come from [`Config`]. Tolerates GKE spot instances.
+/// Uses an ephemeral volume at `/workspace` for build artifacts.
+/// `GITHUB_TOKEN` is injected from the `github-token` Secret.
 async fn create_k8s_job(
     config: &Config,
     jobs_api: &Api<Job>,
     job: &BenchmarkJob,
 ) -> Result<String> {
     let benchmarks: Vec<String> = serde_json::from_str(&job.benchmarks)?;
-    let env_vars: Vec<String> = serde_json::from_str(&job.env_vars)?;
+    let user_env_vars: Vec<String> = serde_json::from_str(&job.env_vars)?;
 
     let job_name = format!(
         "bench-{}-{:x}",
         job.id,
-        job.comment_id.unsigned_abs() % 0xFFFF
+        job.comment_id.unsigned_abs() % JOB_NAME_HASH_MASK
     );
 
     let cpu = job.cpu_request.as_deref().unwrap_or(&config.default_cpu);
@@ -197,26 +247,10 @@ async fn create_k8s_job(
         .unwrap_or(&config.default_memory);
 
     let mut env = vec![
-        EnvVar {
-            name: "PR_URL".into(),
-            value: Some(job.pr_url.clone()),
-            ..Default::default()
-        },
-        EnvVar {
-            name: "BENCHMARKS".into(),
-            value: Some(benchmarks.join(" ")),
-            ..Default::default()
-        },
-        EnvVar {
-            name: "BENCH_TYPE".into(),
-            value: Some(job.job_type.clone()),
-            ..Default::default()
-        },
-        EnvVar {
-            name: "REPO".into(),
-            value: Some(job.repo.clone()),
-            ..Default::default()
-        },
+        env_var("PR_URL", job.pr_url.clone()),
+        env_var("BENCHMARKS", benchmarks.join(" ")),
+        env_var("BENCH_TYPE", job.job_type.clone()),
+        env_var("REPO", job.repo.clone()),
         EnvVar {
             name: "GITHUB_TOKEN".into(),
             value_from: Some(EnvVarSource {
@@ -232,24 +266,16 @@ async fn create_k8s_job(
     ];
 
     // Add user-specified env vars
-    for ev in &env_vars {
+    for ev in &user_env_vars {
         if let Some((k, v)) = ev.split_once('=') {
-            env.push(EnvVar {
-                name: k.to_string(),
-                value: Some(v.to_string()),
-                ..Default::default()
-            });
+            env.push(env_var(k, v));
         }
     }
 
     // For criterion benchmarks, set BENCH_NAME to the first benchmark
     if (job.job_type == "criterion" || job.job_type == "arrow_criterion") && !benchmarks.is_empty()
     {
-        env.push(EnvVar {
-            name: "BENCH_NAME".into(),
-            value: Some(benchmarks[0].clone()),
-            ..Default::default()
-        });
+        env.push(env_var("BENCH_NAME", benchmarks[0].clone()));
     }
 
     let mut resource_requests = BTreeMap::new();
@@ -257,7 +283,7 @@ async fn create_k8s_job(
     resource_requests.insert("memory".to_string(), Quantity(memory.to_string()));
     resource_requests.insert(
         "ephemeral-storage".to_string(),
-        Quantity("100Gi".to_string()),
+        Quantity(config.ephemeral_storage.clone()),
     );
 
     let mut node_selector = BTreeMap::new();
@@ -278,8 +304,8 @@ async fn create_k8s_job(
         },
         spec: Some(JobSpec {
             backoff_limit: Some(0),
-            active_deadline_seconds: Some(7200),
-            ttl_seconds_after_finished: Some(3600),
+            active_deadline_seconds: Some(config.active_deadline_secs),
+            ttl_seconds_after_finished: Some(config.ttl_after_finished_secs),
             template: PodTemplateSpec {
                 metadata: Some(ObjectMeta {
                     labels: Some({
@@ -321,14 +347,14 @@ async fn create_k8s_job(
                                 metadata: Some(ObjectMeta::default()),
                                 spec: k8s_openapi::api::core::v1::PersistentVolumeClaimSpec {
                                     access_modes: Some(vec!["ReadWriteOnce".into()]),
-                                    storage_class_name: Some("hyperdisk-balanced".into()),
+                                    storage_class_name: Some(config.storage_class.clone()),
                                     resources: Some(
                                         k8s_openapi::api::core::v1::VolumeResourceRequirements {
                                             requests: Some({
                                                 let mut m = BTreeMap::new();
                                                 m.insert(
                                                     "storage".to_string(),
-                                                    Quantity("100Gi".to_string()),
+                                                    Quantity(config.ephemeral_storage.clone()),
                                                 );
                                                 m
                                             }),

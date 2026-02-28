@@ -1,3 +1,8 @@
+//! Benchmark controller entry point.
+//!
+//! Spawns two long-running tasks — the GitHub comment poller and the K8s Job
+//! reconciler — and exits if either panics.
+
 mod benchmarks;
 mod config;
 mod db;
@@ -9,6 +14,12 @@ mod models;
 use anyhow::Result;
 use tracing::info;
 
+/// Entry point. Spawns two long-running tasks:
+///
+/// - **GitHub poller** — scans PR comments for benchmark triggers
+/// - **Job reconciler** — creates K8s Jobs for pending work, monitors active ones
+///
+/// Exits if either task panics.
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
