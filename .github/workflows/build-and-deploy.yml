@@ -135,6 +135,9 @@ jobs:
           pulumi config set gcp:project ${{ vars.GCP_PROJECT_ID }}
           pulumi config set gcp:region ${{ vars.GCP_REGION }}
           pulumi config set --secret githubToken '${{ secrets.GH_CONTROLLER_TOKEN }}'
+          if [ -n "${{ secrets.LOGFIRE_TOKEN }}" ]; then
+            pulumi config set --secret logfireToken '${{ secrets.LOGFIRE_TOKEN }}'
+          fi
           pulumi config set imageTag ${{ github.sha }}
 
       - uses: pulumi/actions@v5

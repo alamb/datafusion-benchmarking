@@ -33,8 +33,20 @@ const githubSecret = new k8s.core.v1.Secret("github-token", {
   },
 }, { provider: k8sProvider, dependsOn: [ns] });
 
+// Logfire token secret (optional, set via `pulumi config set --secret logfireToken`)
+const logfireToken = config.getSecret("logfireToken");
+
+const logfireSecret = logfireToken ? new k8s.core.v1.Secret("logfire-token", {
+  metadata: {
+    name: "logfire-token",
+    namespace: "benchmarking",
+  },
+  stringData: {
+    token: logfireToken,
+  },
+}, { provider: k8sProvider, dependsOn: [ns] }) : undefined;
+
 // Controller StatefulSet
-const logfireToken = config.get("logfireToken");
 
 const imageTag = config.get("imageTag") || "latest";
 const controllerImage = pulumi.interpolate`${registryUrl}/controller:${imageTag}`;
@@ -106,7 +118,7 @@ export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-cont
             { name: "RUNNER_IMAGE", value: runnerImage },
             { name: "RUST_LOG", value: "info" },
             ...(logfireToken ? [
-              { name: "LOGFIRE_TOKEN", value: logfireToken },
+              { name: "LOGFIRE_TOKEN", valueFrom: { secretKeyRef: { name: "logfire-token", key: "token" } } },
             ] : []),
             { name: "LOGFIRE_SERVICE_NAME", value: "benchmark-controller" },
             { name: "LOGFIRE_ENVIRONMENT", value: "production" },
@@ -140,4 +152,4 @@ export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-cont
       },
     }],
   },
-}, { provider: k8sProvider, dependsOn: [ns, controllerKsa, githubSecret] });
+}, { provider: k8sProvider, dependsOn: [ns, controllerKsa, githubSecret, ...(logfireSecret ? [logfireSecret] : [])] });
