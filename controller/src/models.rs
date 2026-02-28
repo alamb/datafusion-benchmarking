@@ -1,15 +1,7 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SeenComment {
-    pub comment_id: i64,
-    pub repo: String,
-    pub pr_number: i64,
-    pub login: String,
-    pub created_at: String,
-}
+use serde::Deserialize;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[allow(dead_code)]
 pub struct BenchmarkJob {
     pub id: i64,
     pub comment_id: i64,

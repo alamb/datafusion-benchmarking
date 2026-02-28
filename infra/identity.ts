@@ -57,7 +57,7 @@ export const wifProvider = new gcp.iam.WorkloadIdentityPoolProvider("github-oidc
     "attribute.repository": "assertion.repository",
     "attribute.actor": "assertion.actor",
   },
-  attributeCondition: 'assertion.repository == "adriang/datafusion-benchmarking"',
+  attributeCondition: 'assertion.repository == "adriangb/datafusion-benchmarking"',
   oidc: {
     issuerUri: "https://token.actions.githubusercontent.com",
   },
@@ -67,13 +67,13 @@ export const wifProvider = new gcp.iam.WorkloadIdentityPoolProvider("github-oidc
 new gcp.serviceaccount.IAMMember("gha-wif-binding", {
   serviceAccountId: controllerSa.name,
   role: "roles/iam.workloadIdentityUser",
-  member: pulumi.interpolate`principalSet://iam.googleapis.com/${wifPool.name}/attribute.repository/adriang/datafusion-benchmarking`,
+  member: pulumi.interpolate`principalSet://iam.googleapis.com/${wifPool.name}/attribute.repository/adriangb/datafusion-benchmarking`,
 });
 
 new gcp.serviceaccount.IAMMember("gha-deployer-wif-binding", {
   serviceAccountId: ghaSa.name,
   role: "roles/iam.workloadIdentityUser",
-  member: pulumi.interpolate`principalSet://iam.googleapis.com/${wifPool.name}/attribute.repository/adriang/datafusion-benchmarking`,
+  member: pulumi.interpolate`principalSet://iam.googleapis.com/${wifPool.name}/attribute.repository/adriangb/datafusion-benchmarking`,
 });
 
 // --- Workload Identity binding for controller K8s SA ---

@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 use tracing::{info, warn};
 
 use crate::benchmarks::{
-    self, allowed_users_markdown, detect_benchmark, is_benchmark_trigger, is_queue_request,
+    allowed_users_markdown, detect_benchmark, is_benchmark_trigger, is_queue_request,
     supported_benchmarks_message, RepoConfig, ALLOWED_USERS,
 };
 use crate::config::Config;
@@ -16,7 +16,7 @@ pub async fn poll_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
     let interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
     loop {
         for repo in &config.watched_repos {
-            if let Err(e) = poll_repo(&config, &pool, &gh, repo).await {
+            if let Err(e) = poll_repo(&pool, &gh, repo).await {
                 warn!(repo, error = %e, "poll error");
             }
         }
@@ -24,12 +24,7 @@ pub async fn poll_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
     }
 }
 
-async fn poll_repo(
-    config: &Config,
-    pool: &SqlitePool,
-    gh: &GitHubClient,
-    repo: &str,
-) -> Result<()> {
+async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str) -> Result<()> {
     let repo_cfg = match RepoConfig::for_repo(repo) {
         Some(c) => c,
         None => {

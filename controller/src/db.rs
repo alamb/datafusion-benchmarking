@@ -53,6 +53,7 @@ pub async fn mark_comment_seen(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_job(
     pool: &SqlitePool,
     comment_id: i64,

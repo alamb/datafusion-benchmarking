@@ -221,7 +221,7 @@ async fn create_k8s_job(
             name: "GITHUB_TOKEN".into(),
             value_from: Some(EnvVarSource {
                 secret_key_ref: Some(SecretKeySelector {
-                    name: Some("github-token".into()),
+                    name: "github-token".into(),
                     key: "token".into(),
                     ..Default::default()
                 }),
