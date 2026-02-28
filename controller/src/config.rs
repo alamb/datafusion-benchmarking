@@ -97,7 +97,7 @@ impl Config {
             default_cpu: env_or("DEFAULT_CPU", "30"),
             default_memory: env_or("DEFAULT_MEMORY", "60Gi"),
             ephemeral_storage: env_or("EPHEMERAL_STORAGE", "100Gi"),
-            active_deadline_secs: env_or("ACTIVE_DEADLINE_SECS", "7200")
+            active_deadline_secs: env_or("ACTIVE_DEADLINE_SECS", "3600")
                 .parse()
                 .context("ACTIVE_DEADLINE_SECS")?,
             ttl_after_finished_secs: env_or("TTL_AFTER_FINISHED_SECS", "3600")

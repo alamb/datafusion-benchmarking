@@ -47,8 +47,8 @@ jobs:
             name: ${JOB_NAME}
             namespace: benchmarking
           spec:
-            backoffLimit: 0
-            activeDeadlineSeconds: 7200
+            backoffLimit: 3
+            activeDeadlineSeconds: 3600
             ttlSecondsAfterFinished: 3600
             template:
               spec:
