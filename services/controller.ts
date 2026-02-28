@@ -57,7 +57,7 @@ export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-cont
           image: controllerImage,
           env: [
             { name: "DATABASE_URL", value: "sqlite:///data/benchmark.db" },
-            { name: "WATCHED_REPOS", value: "pydantic/datafusion" },
+            { name: "WATCHED_REPOS", value: "adriangb/datafusion" },
             { name: "POLL_INTERVAL_SECS", value: "30" },
             { name: "RECONCILE_INTERVAL_SECS", value: "10" },
             { name: "K8S_NAMESPACE", value: "benchmarking" },
