@@ -42,7 +42,7 @@ jobs:
         working-directory: infra
         run: npm ci
 
-      - uses: pulumi/auth@v1
+      - uses: pulumi/auth-actions@v1
         with:
           organization: ${{ vars.PULUMI_ORG }}
 

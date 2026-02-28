@@ -16,7 +16,7 @@ permissions:
 
 env:
   REGION: us-central1
-  REGISTRY: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/benchmarking
+  REGISTRY: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/benchmarking
 
 jobs:
   trigger-benchmark:
@@ -24,8 +24,8 @@ jobs:
     steps:
       - uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       - uses: google-github-actions/setup-gcloud@v2
 

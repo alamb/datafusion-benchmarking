@@ -89,8 +89,15 @@ async fn process_comment(
     // Handle queue requests
     if is_queue_request(body) {
         info!(pr_number, login, "queue request");
-        db::mark_comment_seen(pool, comment.id, &repo_cfg.repo, pr_number, login, created_at)
-            .await?;
+        db::mark_comment_seen(
+            pool,
+            comment.id,
+            &repo_cfg.repo,
+            pr_number,
+            login,
+            created_at,
+        )
+        .await?;
 
         let jobs = db::get_queue_summary(pool).await?;
         let msg = format_queue_message(login, comment_url, &jobs);
@@ -146,8 +153,15 @@ async fn process_comment(
 
     // User must be allowed
     if !ALLOWED_USERS.contains(login) {
-        db::mark_comment_seen(pool, comment.id, &repo_cfg.repo, pr_number, login, created_at)
-            .await?;
+        db::mark_comment_seen(
+            pool,
+            comment.id,
+            &repo_cfg.repo,
+            pr_number,
+            login,
+            created_at,
+        )
+        .await?;
         let msg = format!(
             "Hi @{login}, thanks for the request ({comment_url}). \
              Only whitelisted users can trigger benchmarks. Allowed users: {}.",
@@ -159,8 +173,15 @@ async fn process_comment(
 
     info!(pr_number, login, benchmarks = ?request.benchmarks, "scheduling benchmark");
 
-    db::mark_comment_seen(pool, comment.id, &repo_cfg.repo, pr_number, login, created_at)
-        .await?;
+    db::mark_comment_seen(
+        pool,
+        comment.id,
+        &repo_cfg.repo,
+        pr_number,
+        login,
+        created_at,
+    )
+    .await?;
 
     let pr_url = format!("https://github.com/{}/pull/{}", repo_cfg.repo, pr_number);
     let benchmarks_json = serde_json::to_string(&request.benchmarks)?;

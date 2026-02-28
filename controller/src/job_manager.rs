@@ -3,9 +3,8 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
-    Container, EnvVar, EnvVarSource, EphemeralVolumeSource, PersistentVolumeClaimTemplate,
-    PodSpec, PodTemplateSpec, ResourceRequirements, SecretKeySelector, Toleration, Volume,
-    VolumeMount,
+    Container, EnvVar, EnvVarSource, EphemeralVolumeSource, PersistentVolumeClaimTemplate, PodSpec,
+    PodTemplateSpec, ResourceRequirements, SecretKeySelector, Toleration, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -77,10 +76,7 @@ async fn reconcile_pending(
                 )
                 .await?;
 
-                let msg = format!(
-                    "Failed to start benchmark for PR #{}: {e}",
-                    job.pr_number
-                );
+                let msg = format!("Failed to start benchmark for PR #{}: {e}", job.pr_number);
                 if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
                     warn!(error = %e, "failed to post error comment");
                 }
@@ -118,14 +114,7 @@ async fn reconcile_active(
                 } else if failed > 0 {
                     info!(job_id = job.id, "job failed");
                     let error_msg = read_pod_error(kube, config, &k8s_name).await;
-                    db::update_job_status(
-                        pool,
-                        job.id,
-                        "failed",
-                        None,
-                        Some(&error_msg),
-                    )
-                    .await?;
+                    db::update_job_status(pool, job.id, "failed", None, Some(&error_msg)).await?;
 
                     let msg = format!(
                         "Benchmark job `{k8s_name}` failed for PR #{}.\n\n\
@@ -139,7 +128,10 @@ async fn reconcile_active(
                 }
             }
             Err(kube::Error::Api(ae)) if ae.code == 404 => {
-                warn!(job_id = job.id, k8s_name, "k8s job not found, marking failed");
+                warn!(
+                    job_id = job.id,
+                    k8s_name, "k8s job not found, marking failed"
+                );
                 db::update_job_status(pool, job.id, "failed", None, Some("K8s Job not found"))
                     .await?;
             }
@@ -165,7 +157,13 @@ async fn read_pod_error(kube: &KubeClient, config: &Config, job_name: &str) -> S
             if let Some(pod) = list.items.first() {
                 let pod_name = pod.metadata.name.as_deref().unwrap_or("unknown");
                 match pods_api
-                    .logs(pod_name, &kube::api::LogParams { tail_lines: Some(50), ..Default::default() })
+                    .logs(
+                        pod_name,
+                        &kube::api::LogParams {
+                            tail_lines: Some(50),
+                            ..Default::default()
+                        },
+                    )
                     .await
                 {
                     Ok(logs) => return logs,
@@ -186,12 +184,13 @@ async fn create_k8s_job(
     let benchmarks: Vec<String> = serde_json::from_str(&job.benchmarks)?;
     let env_vars: Vec<String> = serde_json::from_str(&job.env_vars)?;
 
-    let job_name = format!("bench-{}-{:x}", job.id, job.comment_id.unsigned_abs() % 0xFFFF);
+    let job_name = format!(
+        "bench-{}-{:x}",
+        job.id,
+        job.comment_id.unsigned_abs() % 0xFFFF
+    );
 
-    let cpu = job
-        .cpu_request
-        .as_deref()
-        .unwrap_or(&config.default_cpu);
+    let cpu = job.cpu_request.as_deref().unwrap_or(&config.default_cpu);
     let memory = job
         .memory_request
         .as_deref()
@@ -323,17 +322,19 @@ async fn create_k8s_job(
                                 spec: k8s_openapi::api::core::v1::PersistentVolumeClaimSpec {
                                     access_modes: Some(vec!["ReadWriteOnce".into()]),
                                     storage_class_name: Some("hyperdisk-balanced".into()),
-                                    resources: Some(k8s_openapi::api::core::v1::VolumeResourceRequirements {
-                                        requests: Some({
-                                            let mut m = BTreeMap::new();
-                                            m.insert(
-                                                "storage".to_string(),
-                                                Quantity("100Gi".to_string()),
-                                            );
-                                            m
-                                        }),
-                                        ..Default::default()
-                                    }),
+                                    resources: Some(
+                                        k8s_openapi::api::core::v1::VolumeResourceRequirements {
+                                            requests: Some({
+                                                let mut m = BTreeMap::new();
+                                                m.insert(
+                                                    "storage".to_string(),
+                                                    Quantity("100Gi".to_string()),
+                                                );
+                                                m
+                                            }),
+                                            ..Default::default()
+                                        },
+                                    ),
                                     ..Default::default()
                                 },
                             }),

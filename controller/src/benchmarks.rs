@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-
 use crate::models::{BenchmarkRequest, JobType};
 
 pub static ALLOWED_USERS: Lazy<HashSet<&str>> = Lazy::new(|| {

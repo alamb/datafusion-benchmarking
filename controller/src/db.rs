@@ -24,12 +24,11 @@ pub async fn connect(database_url: &str) -> Result<SqlitePool> {
 }
 
 pub async fn is_comment_seen(pool: &SqlitePool, comment_id: i64) -> Result<bool> {
-    let row = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM seen_comments WHERE comment_id = ?",
-    )
-    .bind(comment_id)
-    .fetch_one(pool)
-    .await?;
+    let row =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM seen_comments WHERE comment_id = ?")
+            .bind(comment_id)
+            .fetch_one(pool)
+            .await?;
     Ok(row > 0)
 }
 
@@ -121,12 +120,10 @@ pub async fn update_job_status(
 }
 
 pub async fn get_last_scan(pool: &SqlitePool, repo: &str) -> Result<Option<String>> {
-    let row = sqlx::query_scalar::<_, String>(
-        "SELECT last_scan_at FROM scan_state WHERE repo = ?",
-    )
-    .bind(repo)
-    .fetch_optional(pool)
-    .await?;
+    let row = sqlx::query_scalar::<_, String>("SELECT last_scan_at FROM scan_state WHERE repo = ?")
+        .bind(repo)
+        .fetch_optional(pool)
+        .await?;
     Ok(row)
 }
 
