@@ -3,7 +3,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::str::FromStr;
 
-use crate::models::BenchmarkJob;
+use crate::models::{BenchmarkJob, JobInsert};
 
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::from_str(database_url)?
@@ -53,30 +53,19 @@ pub async fn mark_comment_seen(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn insert_job(
-    pool: &SqlitePool,
-    comment_id: i64,
-    repo: &str,
-    pr_number: i64,
-    pr_url: &str,
-    login: &str,
-    benchmarks: &str,
-    env_vars: &str,
-    job_type: &str,
-) -> Result<i64> {
+pub async fn insert_job(pool: &SqlitePool, job: &JobInsert<'_>) -> Result<i64> {
     let result = sqlx::query(
         "INSERT INTO benchmark_jobs (comment_id, repo, pr_number, pr_url, login, benchmarks, env_vars, job_type) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(comment_id)
-    .bind(repo)
-    .bind(pr_number)
-    .bind(pr_url)
-    .bind(login)
-    .bind(benchmarks)
-    .bind(env_vars)
-    .bind(job_type)
+    .bind(job.comment_id)
+    .bind(job.repo)
+    .bind(job.pr_number)
+    .bind(job.pr_url)
+    .bind(job.login)
+    .bind(job.benchmarks)
+    .bind(job.env_vars)
+    .bind(job.job_type)
     .execute(pool)
     .await?;
     Ok(result.last_insert_rowid())

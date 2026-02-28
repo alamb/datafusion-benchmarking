@@ -10,7 +10,7 @@ use crate::benchmarks::{
 use crate::config::Config;
 use crate::db;
 use crate::github::GitHubClient;
-use crate::models::GitHubComment;
+use crate::models::{GitHubComment, JobInsert};
 
 pub async fn poll_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
     let interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
@@ -187,14 +187,16 @@ async fn process_comment(
         // Default suite — standard job
         db::insert_job(
             pool,
-            comment.id,
-            &repo_cfg.repo,
-            pr_number,
-            &pr_url,
-            login,
-            &benchmarks_json,
-            &env_vars_json,
-            "standard",
+            &JobInsert {
+                comment_id: comment.id,
+                repo: &repo_cfg.repo,
+                pr_number,
+                pr_url: &pr_url,
+                login,
+                benchmarks: &benchmarks_json,
+                env_vars: &env_vars_json,
+                job_type: "standard",
+            },
         )
         .await?;
     } else {
@@ -208,14 +210,16 @@ async fn process_comment(
             let single_bench = serde_json::to_string(&[bench])?;
             db::insert_job(
                 pool,
-                comment.id,
-                &repo_cfg.repo,
-                pr_number,
-                &pr_url,
-                login,
-                &single_bench,
-                &env_vars_json,
-                job_type,
+                &JobInsert {
+                    comment_id: comment.id,
+                    repo: &repo_cfg.repo,
+                    pr_number,
+                    pr_url: &pr_url,
+                    login,
+                    benchmarks: &single_bench,
+                    env_vars: &env_vars_json,
+                    job_type,
+                },
             )
             .await?;
         }

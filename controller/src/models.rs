@@ -1,5 +1,16 @@
 use serde::Deserialize;
 
+pub struct JobInsert<'a> {
+    pub comment_id: i64,
+    pub repo: &'a str,
+    pub pr_number: i64,
+    pub pr_url: &'a str,
+    pub login: &'a str,
+    pub benchmarks: &'a str,
+    pub env_vars: &'a str,
+    pub job_type: &'a str,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 #[allow(dead_code)]
 pub struct BenchmarkJob {
