@@ -209,6 +209,10 @@ async fn process_comment(
 
     info!(pr_number, login, benchmarks = ?request.benchmarks, "scheduling benchmark");
 
+    // Mark seen before insert_job — the FK on benchmark_jobs requires the
+    // seen_comments row to exist first.
+    mark_seen(pool, comment, repo, pr_number).await?;
+
     let pr_url = format!("https://github.com/{}/pull/{}", repo, pr_number);
     let benchmarks_json = serde_json::to_string(&request.benchmarks)?;
     let env_vars_json = serde_json::to_string(&request.env_vars)?;
@@ -255,9 +259,6 @@ async fn process_comment(
             .await?;
         }
     }
-
-    // Job insert succeeded — now safe to mark the comment as seen.
-    mark_seen(pool, comment, repo, pr_number).await?;
 
     // React with rocket
     if let Err(e) = gh.post_reaction(repo, comment.id, "rocket").await {
