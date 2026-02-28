@@ -1,4 +1,4 @@
-FROM rust:1.83-bookworm
+FROM rust:1-bookworm
 
 RUN apt-get update && apt-get install -y \
     git \

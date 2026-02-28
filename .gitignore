@@ -10,7 +10,6 @@ controller/target/
 # Node / Pulumi
 infra/node_modules/
 infra/bin/
-infra/package-lock.json
 
 # Python
 __pycache__/
