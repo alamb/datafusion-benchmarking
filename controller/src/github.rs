@@ -107,7 +107,10 @@ impl GitHubClient {
     /// Send a GET request with retry logic. Returns the successful response.
     async fn get_with_retry(&self, url: &str, query: &[(&str, &str)]) -> Result<Response> {
         let url = url.to_string();
-        let query: Vec<(String, String)> = query.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let query: Vec<(String, String)> = query
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
 
         (|| {
             let url = url.clone();

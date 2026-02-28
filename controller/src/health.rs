@@ -1,7 +1,7 @@
 //! Minimal TCP-based health server for Kubernetes probes.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -10,7 +10,8 @@ use tracing::info;
 
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
 const NOT_FOUND: &[u8] = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-const UNAVAILABLE: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 9\r\n\r\nnot ready";
+const UNAVAILABLE: &[u8] =
+    b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 9\r\n\r\nnot ready";
 
 /// Shared flag set to `true` once both loops have started.
 pub type ReadyFlag = Arc<AtomicBool>;

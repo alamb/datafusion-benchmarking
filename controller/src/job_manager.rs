@@ -124,11 +124,7 @@ async fn reconcile_pending(
 
 /// Check K8s Job status for all running benchmark rows and transition to completed/failed.
 #[tracing::instrument(skip_all)]
-async fn reconcile_active(
-    config: &Config,
-    pool: &SqlitePool,
-    kube: &KubeClient,
-) -> Result<()> {
+async fn reconcile_active(config: &Config, pool: &SqlitePool, kube: &KubeClient) -> Result<()> {
     let active = db::get_active_jobs(pool).await?;
     let jobs_api: Api<Job> = Api::namespaced(kube.clone(), &config.k8s_namespace);
 
@@ -149,8 +145,14 @@ async fn reconcile_active(
                     db::update_job_status(pool, job.id, JobStatus::Completed, None, None).await?;
                 } else if failed > 0 {
                     info!(job_id = job.id, "job failed");
-                    db::update_job_status(pool, job.id, JobStatus::Failed, None, Some("K8s job failed"))
-                        .await?;
+                    db::update_job_status(
+                        pool,
+                        job.id,
+                        JobStatus::Failed,
+                        None,
+                        Some("K8s job failed"),
+                    )
+                    .await?;
                 }
             }
             Err(kube::Error::Api(ae)) if ae.code == 404 => {

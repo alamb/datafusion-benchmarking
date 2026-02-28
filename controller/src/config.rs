@@ -84,10 +84,8 @@ impl Config {
         Ok(Self {
             github_token: env_required("GITHUB_TOKEN")?,
             database_url: env_or("DATABASE_URL", "sqlite:///data/benchmark.db"),
-            benchmark_config: serde_json::from_str(
-                &env_required("BENCHMARK_CONFIG")?,
-            )
-            .context("failed to parse BENCHMARK_CONFIG JSON")?,
+            benchmark_config: serde_json::from_str(&env_required("BENCHMARK_CONFIG")?)
+                .context("failed to parse BENCHMARK_CONFIG JSON")?,
             poll_interval_secs: env_or("POLL_INTERVAL_SECS", "5")
                 .parse()
                 .context("POLL_INTERVAL_SECS")?,

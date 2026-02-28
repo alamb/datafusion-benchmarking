@@ -185,11 +185,7 @@ mod tests {
                 "external_aggr".into(),
                 "tpcds".into(),
             ],
-            criterion: vec![
-                "sql_planner".into(),
-                "in_list".into(),
-                "case_when".into(),
-            ],
+            criterion: vec!["sql_planner".into(), "in_list".into(), "case_when".into()],
             criterion_type: "datafusion".into(),
         }
     }
@@ -367,8 +363,10 @@ mod tests {
 
     #[test]
     fn allowed_users_contains_known_user() {
-        let users: HashSet<String> =
-            ["alamb", "zhuqi-lucas"].iter().map(|s| s.to_string()).collect();
+        let users: HashSet<String> = ["alamb", "zhuqi-lucas"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let md = allowed_users_markdown(&users);
         assert!(md.contains("[alamb](https://github.com/alamb)"));
         // Verify sorted (a before z)

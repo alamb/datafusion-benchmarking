@@ -111,11 +111,7 @@ async fn main() -> Result<()> {
     token.cancel();
 
     // Give the health server a moment to stop
-    let _ = tokio::time::timeout(
-        tokio::time::Duration::from_secs(5),
-        health_handle,
-    )
-    .await;
+    let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), health_handle).await;
 
     Ok(())
 }

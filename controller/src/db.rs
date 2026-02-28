@@ -389,19 +389,23 @@ mod tests {
         mark_comment_seen(&pool, 700, "apache/datafusion", 42, "alice", "2024-01-01")
             .await
             .unwrap();
-        sqlx::query("UPDATE seen_comments SET processed_at = '2024-01-01T00:00:00Z' WHERE comment_id = 700")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "UPDATE seen_comments SET processed_at = '2024-01-01T00:00:00Z' WHERE comment_id = 700",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         // Insert a recent comment (after last_scan_at)
         mark_comment_seen(&pool, 701, "apache/datafusion", 43, "bob", "2024-06-01")
             .await
             .unwrap();
-        sqlx::query("UPDATE seen_comments SET processed_at = '2024-06-15T00:00:00Z' WHERE comment_id = 701")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "UPDATE seen_comments SET processed_at = '2024-06-15T00:00:00Z' WHERE comment_id = 701",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let deleted = cleanup_seen_comments(&pool, poll_interval).await.unwrap();
         assert_eq!(deleted, 1);
@@ -420,10 +424,12 @@ mod tests {
         mark_comment_seen(&pool, 710, "apache/datafusion", 42, "alice", "2024-01-01")
             .await
             .unwrap();
-        sqlx::query("UPDATE seen_comments SET processed_at = '2020-01-01T00:00:00Z' WHERE comment_id = 710")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "UPDATE seen_comments SET processed_at = '2020-01-01T00:00:00Z' WHERE comment_id = 710",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let deleted = cleanup_seen_comments(&pool, 5).await.unwrap();
         assert_eq!(deleted, 0);

@@ -41,7 +41,15 @@ pub async fn poll_loop(
     let interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
     loop {
         for repo in config.benchmark_config.repos.keys() {
-            if let Err(e) = poll_repo(&pool, &gh, &config.benchmark_config, repo, config.poll_interval_secs).await {
+            if let Err(e) = poll_repo(
+                &pool,
+                &gh,
+                &config.benchmark_config,
+                repo,
+                config.poll_interval_secs,
+            )
+            .await
+            {
                 warn!(repo, error = ?e, "poll error");
             }
         }
@@ -57,7 +65,13 @@ pub async fn poll_loop(
 
 /// Fetch and process recent comments for a single repo.
 #[tracing::instrument(skip(pool, gh, bench_cfg, poll_interval_secs))]
-async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, bench_cfg: &BenchmarkConfig, repo: &str, poll_interval_secs: u64) -> Result<()> {
+async fn poll_repo(
+    pool: &SqlitePool,
+    gh: &GitHubClient,
+    bench_cfg: &BenchmarkConfig,
+    repo: &str,
+    poll_interval_secs: u64,
+) -> Result<()> {
     let repo_entry = match bench_cfg.repos.get(repo) {
         Some(e) => e,
         None => {
@@ -93,7 +107,11 @@ async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, bench_cfg: &BenchmarkCo
 }
 
 /// Build the "not allowed" reply posted when a non-whitelisted user triggers a benchmark.
-fn not_allowed_message(login: &str, comment_url: &str, allowed_users: &std::collections::HashSet<String>) -> String {
+fn not_allowed_message(
+    login: &str,
+    comment_url: &str,
+    allowed_users: &std::collections::HashSet<String>,
+) -> String {
     format!(
         "Hi @{login}, thanks for the request ({comment_url}). \
          Only whitelisted users can trigger benchmarks. \
