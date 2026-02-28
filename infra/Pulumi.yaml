@@ -3,6 +3,6 @@ runtime: nodejs
 description: GKE Autopilot infrastructure for DataFusion benchmarking
 config:
   gcp:project:
-    value: datafusion-benchmarking
+    description: GCP project ID
   gcp:region:
-    value: us-central1
+    description: GCP region

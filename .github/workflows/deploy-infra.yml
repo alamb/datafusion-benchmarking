@@ -40,8 +40,15 @@ jobs:
           requested-token-type: urn:pulumi:token-type:access_token:personal
           scope: user:${{ vars.PULUMI_USER }}
 
+      - name: Configure Pulumi stack
+        working-directory: infra
+        run: |
+          pulumi stack select --create ${{ vars.PULUMI_ORG }}/dev
+          pulumi config set gcp:project ${{ vars.GCP_PROJECT_ID }}
+          pulumi config set gcp:region ${{ vars.GCP_REGION }}
+
       - uses: pulumi/actions@v5
         with:
           command: up
-          stack-name: dev
+          stack-name: ${{ vars.PULUMI_ORG }}/dev
           work-dir: infra
