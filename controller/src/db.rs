@@ -62,6 +62,7 @@ pub async fn mark_comment_seen(
 }
 
 /// Insert a new benchmark job with status `pending`. Returns the new row ID.
+#[tracing::instrument(skip_all, fields(pr_number = job.pr_number, job_type = job.job_type))]
 pub async fn insert_job(pool: &SqlitePool, job: &JobInsert<'_>) -> Result<i64> {
     let result = sqlx::query(
         "INSERT INTO benchmark_jobs (comment_id, repo, pr_number, pr_url, login, benchmarks, env_vars, job_type) \
@@ -81,6 +82,7 @@ pub async fn insert_job(pool: &SqlitePool, job: &JobInsert<'_>) -> Result<i64> {
 }
 
 /// Return up to 5 oldest `pending` jobs, ordered by ID.
+#[tracing::instrument(skip(pool))]
 pub async fn get_pending_jobs(pool: &SqlitePool) -> Result<Vec<BenchmarkJob>> {
     let jobs = sqlx::query_as::<_, BenchmarkJob>(
         "SELECT * FROM benchmark_jobs WHERE status = 'pending' ORDER BY id LIMIT 5",
@@ -102,6 +104,7 @@ pub async fn get_active_jobs(pool: &SqlitePool) -> Result<Vec<BenchmarkJob>> {
 
 /// Transition a job's status. Optionally sets `k8s_job_name` and `error_message`
 /// (uses COALESCE to keep existing values when `None`).
+#[tracing::instrument(skip(pool, k8s_job_name, error_message))]
 pub async fn update_job_status(
     pool: &SqlitePool,
     job_id: i64,
@@ -179,6 +182,7 @@ pub async fn cleanup_old_jobs(pool: &SqlitePool, retention_days: i64) -> Result<
 }
 
 /// Run all cleanup tasks with default parameters. Returns (comments_deleted, jobs_deleted).
+#[tracing::instrument(skip(pool))]
 pub async fn run_cleanup(pool: &SqlitePool, poll_interval_secs: u64) -> Result<(u64, u64)> {
     let comments = cleanup_seen_comments(pool, poll_interval_secs).await?;
     let jobs = cleanup_old_jobs(pool, JOB_RETENTION_DAYS).await?;

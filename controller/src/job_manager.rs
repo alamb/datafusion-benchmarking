@@ -73,6 +73,7 @@ pub async fn reconcile_loop(
 }
 
 /// Create K8s Jobs for all pending benchmark rows and transition them to running/failed.
+#[tracing::instrument(skip_all)]
 async fn reconcile_pending(
     config: &Config,
     pool: &SqlitePool,
@@ -122,6 +123,7 @@ async fn reconcile_pending(
 }
 
 /// Check K8s Job status for all running benchmark rows and transition to completed/failed.
+#[tracing::instrument(skip_all)]
 async fn reconcile_active(
     config: &Config,
     pool: &SqlitePool,
@@ -188,6 +190,7 @@ fn env_var(name: &str, value: impl Into<String>) -> EnvVar {
 /// Resource defaults come from [`Config`]. Tolerates GKE spot instances.
 /// Uses an ephemeral volume at `/workspace` for build artifacts.
 /// `GITHUB_TOKEN` is injected from the `github-token` Secret.
+#[tracing::instrument(skip(config, jobs_api), fields(job_id = job.id, pr_number = job.pr_number))]
 async fn create_k8s_job(
     config: &Config,
     jobs_api: &Api<Job>,

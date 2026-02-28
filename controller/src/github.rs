@@ -153,6 +153,7 @@ impl GitHubClient {
 
     /// Fetch issue/PR comments updated since `since` (ISO 8601), paginating through all results.
     /// Caps at MAX_PAGES pages (10,000 comments).
+    #[tracing::instrument(skip(self, since))]
     pub async fn fetch_recent_comments(
         &self,
         repo: &str,
@@ -203,6 +204,7 @@ impl GitHubClient {
     }
 
     /// Post a comment on a PR/issue.
+    #[tracing::instrument(skip(self, body))]
     pub async fn post_comment(&self, repo: &str, pr_number: i64, body: &str) -> Result<()> {
         let url = format!("{API_BASE}/repos/{repo}/issues/{pr_number}/comments");
         self.post_with_retry(&url, serde_json::json!({ "body": body }))

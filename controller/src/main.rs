@@ -19,11 +19,12 @@ use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    let logfire = logfire::configure()
+        .with_service_name("benchmark-controller")
+        .send_to_logfire(logfire::config::SendToLogfire::IfTokenPresent)
+        .with_console(Some(logfire::config::ConsoleOptions::default()))
+        .finish()?;
+    let _logfire_guard = logfire.shutdown_guard();
 
     let config = config::Config::from_env()?;
     let watched: Vec<&String> = config.benchmark_config.repos.keys().collect();
