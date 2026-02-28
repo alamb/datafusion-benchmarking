@@ -9,104 +9,8 @@ use std::collections::HashSet;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+use crate::config::RepoEntry;
 use crate::models::{BenchmarkRequest, JobType};
-
-pub static ALLOWED_USERS: Lazy<HashSet<&str>> = Lazy::new(|| {
-    [
-        "alamb",
-        "Dandandan",
-        "adriangb",
-        "rluvaton",
-        "geoffreyclaude",
-        "xudong963",
-        "zhuqi-lucas",
-        "Omega359",
-        "comphead",
-        "klion26",
-        "gabotechs",
-        "Jefffrey",
-        "etseidl",
-    ]
-    .into_iter()
-    .collect()
-});
-
-pub static ALLOWED_BENCHMARKS_DF: Lazy<HashSet<&str>> = Lazy::new(|| {
-    [
-        "tpch",
-        "tpch10",
-        "tpch_mem",
-        "tpch_mem10",
-        "clickbench_partitioned",
-        "clickbench_extended",
-        "clickbench_1",
-        "clickbench_pushdown",
-        "external_aggr",
-        "tpcds",
-    ]
-    .into_iter()
-    .collect()
-});
-
-pub static ALLOWED_CRITERION_BENCHMARKS_DF: Lazy<HashSet<&str>> = Lazy::new(|| {
-    [
-        "sql_planner",
-        "in_list",
-        "case_when",
-        "aggregate_vectorized",
-        "aggregate_query_sql",
-        "with_hashes",
-        "range_and_generate_series",
-        "sort",
-        "left",
-        "strpos",
-        "substr_index",
-        "character_length",
-        "reset_plan_states",
-        "replace",
-        "plan_reuse",
-    ]
-    .into_iter()
-    .collect()
-});
-
-pub static ALLOWED_CRITERION_BENCHMARKS_ARROW: Lazy<HashSet<&str>> = Lazy::new(|| {
-    [
-        "arrow_reader",
-        "arrow_reader_clickbench",
-        "arrow_reader_row_filter",
-        "arrow_statistics",
-        "arrow_writer",
-        "array_iter",
-        "array_from",
-        "bitwise_kernel",
-        "boolean_kernels",
-        "buffer_bit_ops",
-        "builder",
-        "cast_kernels",
-        "comparison_kernels",
-        "csv_writer",
-        "coalesce_kernels",
-        "encoding",
-        "metadata",
-        "json-reader",
-        "ipc_reader",
-        "take_kernels",
-        "sort_kernel",
-        "interleave_kernels",
-        "union_array",
-        "variant_builder",
-        "variant_kernels",
-        "view_types",
-        "variant_validation",
-        "filter_kernels",
-        "concatenate_kernel",
-        "row_format",
-        "zip_kernels",
-    ]
-    .into_iter()
-    .collect()
-});
 
 static ENV_VAR_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[A-Z_][A-Z0-9_]*=[a-zA-Z0-9._\-]+$").unwrap());
@@ -117,37 +21,13 @@ static TRIGGER_DEFAULT_RE: Lazy<Regex> =
 static TRIGGER_NAMED_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)^\s*run\s+benchmark\s+([a-zA-Z0-9_\-\s]+?)\s*$").unwrap());
 
-/// Per-repo benchmark allowlists. Maps a GitHub repo to its valid standard and criterion benchmarks.
-pub struct RepoConfig {
-    pub repo: String,
-    pub allowed_standard: &'static HashSet<&'static str>,
-    pub allowed_criterion: &'static HashSet<&'static str>,
-}
-
-impl RepoConfig {
-    /// Factory: returns the benchmark config for a known repo, or `None`.
-    pub fn for_repo(repo: &str) -> Option<Self> {
-        match repo {
-            "apache/datafusion" | "pydantic/datafusion" | "adriangb/datafusion" => Some(Self {
-                repo: repo.to_string(),
-                allowed_standard: &ALLOWED_BENCHMARKS_DF,
-                allowed_criterion: &ALLOWED_CRITERION_BENCHMARKS_DF,
-            }),
-            "apache/arrow-rs" => Some(Self {
-                repo: repo.to_string(),
-                allowed_standard: &EMPTY_SET,
-                allowed_criterion: &ALLOWED_CRITERION_BENCHMARKS_ARROW,
-            }),
-            _ => None,
-        }
-    }
-
+impl RepoEntry {
     /// Determine the [`JobType`] for a benchmark name, or `None` if not recognized.
     pub fn classify_benchmark(&self, name: &str) -> Option<JobType> {
-        if self.allowed_standard.contains(name) {
+        if self.standard_set().contains(name) {
             Some(JobType::Standard)
-        } else if self.allowed_criterion.contains(name) {
-            if self.repo == "apache/arrow-rs" {
+        } else if self.criterion_set().contains(name) {
+            if self.criterion_type == "arrow" {
                 Some(JobType::ArrowCriterion)
             } else {
                 Some(JobType::Criterion)
@@ -157,9 +37,6 @@ impl RepoConfig {
         }
     }
 }
-
-// Empty set for repos with no standard benchmarks
-static EMPTY_SET: Lazy<HashSet<&str>> = Lazy::new(HashSet::new);
 
 /// Extract `KEY=value` lines that match `^[A-Z_][A-Z0-9_]*=[a-zA-Z0-9._-]+$`.
 fn parse_env_vars(lines: &[&str]) -> Vec<String> {
@@ -175,7 +52,7 @@ fn parse_env_vars(lines: &[&str]) -> Vec<String> {
 ///
 /// Recognizes `run benchmarks` (default suite) and `run benchmark <name> [<name>...]`.
 /// Extra lines after the trigger are scanned for environment variable overrides.
-pub fn detect_benchmark(repo_cfg: &RepoConfig, body: &str) -> Option<BenchmarkRequest> {
+pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> Option<BenchmarkRequest> {
     let lines: Vec<&str> = body.trim().lines().collect();
     if lines.is_empty() {
         return None;
@@ -197,10 +74,12 @@ pub fn detect_benchmark(repo_cfg: &RepoConfig, body: &str) -> Option<BenchmarkRe
         return None;
     }
 
-    let all_valid = names.iter().all(|n| {
-        repo_cfg.allowed_standard.contains(n.as_str())
-            || repo_cfg.allowed_criterion.contains(n.as_str())
-    });
+    let standard = repo_entry.standard_set();
+    let criterion = repo_entry.criterion_set();
+
+    let all_valid = names
+        .iter()
+        .all(|n| standard.contains(n.as_str()) || criterion.contains(n.as_str()));
 
     if all_valid {
         Some(BenchmarkRequest {
@@ -226,14 +105,14 @@ pub fn is_queue_request(body: &str) -> bool {
 }
 
 /// Build a markdown message listing all valid benchmarks for a repo, highlighting any unsupported names.
-pub fn supported_benchmarks_message(repo_cfg: &RepoConfig, requested: &[String]) -> String {
+pub fn supported_benchmarks_message(repo_entry: &RepoEntry, requested: &[String]) -> String {
     let standard: Vec<&str> = {
-        let mut v: Vec<&str> = repo_cfg.allowed_standard.iter().copied().collect();
+        let mut v: Vec<&str> = repo_entry.standard.iter().map(|s| s.as_str()).collect();
         v.sort();
         v
     };
     let criterion: Vec<&str> = {
-        let mut v: Vec<&str> = repo_cfg.allowed_criterion.iter().copied().collect();
+        let mut v: Vec<&str> = repo_entry.criterion.iter().map(|s| s.as_str()).collect();
         v.sort();
         v
     };
@@ -249,12 +128,12 @@ pub fn supported_benchmarks_message(repo_cfg: &RepoConfig, requested: &[String])
         criterion.join(", ")
     };
 
+    let standard_set = repo_entry.standard_set();
+    let criterion_set = repo_entry.criterion_set();
+
     let bad: Vec<&String> = requested
         .iter()
-        .filter(|n| {
-            !repo_cfg.allowed_standard.contains(n.as_str())
-                && !repo_cfg.allowed_criterion.contains(n.as_str())
-        })
+        .filter(|n| !standard_set.contains(n.as_str()) && !criterion_set.contains(n.as_str()))
         .collect();
 
     let unsupported = if bad.is_empty() {
@@ -278,8 +157,8 @@ pub fn supported_benchmarks_message(repo_cfg: &RepoConfig, requested: &[String])
 }
 
 /// Format the allowlist as a comma-separated list of GitHub profile links.
-pub fn allowed_users_markdown() -> String {
-    let mut users: Vec<&&str> = ALLOWED_USERS.iter().collect();
+pub fn allowed_users_markdown(allowed_users: &HashSet<String>) -> String {
+    let mut users: Vec<&str> = allowed_users.iter().map(|s| s.as_str()).collect();
     users.sort();
     users
         .iter()
@@ -292,19 +171,42 @@ pub fn allowed_users_markdown() -> String {
 mod tests {
     use super::*;
 
-    fn df_config() -> RepoConfig {
-        RepoConfig::for_repo("apache/datafusion").unwrap()
+    fn df_entry() -> RepoEntry {
+        RepoEntry {
+            standard: vec![
+                "tpch".into(),
+                "tpch10".into(),
+                "tpch_mem".into(),
+                "tpch_mem10".into(),
+                "clickbench_partitioned".into(),
+                "clickbench_extended".into(),
+                "clickbench_1".into(),
+                "clickbench_pushdown".into(),
+                "external_aggr".into(),
+                "tpcds".into(),
+            ],
+            criterion: vec![
+                "sql_planner".into(),
+                "in_list".into(),
+                "case_when".into(),
+            ],
+            criterion_type: "datafusion".into(),
+        }
     }
 
-    fn arrow_config() -> RepoConfig {
-        RepoConfig::for_repo("apache/arrow-rs").unwrap()
+    fn arrow_entry() -> RepoEntry {
+        RepoEntry {
+            standard: vec![],
+            criterion: vec!["arrow_reader".into(), "arrow_writer".into()],
+            criterion_type: "arrow".into(),
+        }
     }
 
     // ── detect_benchmark ────────────────────────────────────────────
 
     #[test]
     fn detect_default_suite() {
-        let req = detect_benchmark(&df_config(), "run benchmarks").unwrap();
+        let req = detect_benchmark(&df_entry(), "run benchmarks").unwrap();
         assert!(req.benchmarks.is_empty());
         assert!(req.env_vars.is_empty());
     }
@@ -312,58 +214,58 @@ mod tests {
     #[test]
     fn detect_default_suite_with_env_vars() {
         let body = "run benchmarks\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
-        let req = detect_benchmark(&df_config(), body).unwrap();
+        let req = detect_benchmark(&df_entry(), body).unwrap();
         assert!(req.benchmarks.is_empty());
         assert_eq!(req.env_vars, vec!["DATAFUSION_RUNTIME_MEMORY_LIMIT=1G"]);
     }
 
     #[test]
     fn detect_single_named() {
-        let req = detect_benchmark(&df_config(), "run benchmark tpch_mem").unwrap();
+        let req = detect_benchmark(&df_entry(), "run benchmark tpch_mem").unwrap();
         assert_eq!(req.benchmarks, vec!["tpch_mem"]);
     }
 
     #[test]
     fn detect_multiple_named() {
-        let req = detect_benchmark(&df_config(), "run benchmark tpch_mem tpch10").unwrap();
+        let req = detect_benchmark(&df_entry(), "run benchmark tpch_mem tpch10").unwrap();
         assert_eq!(req.benchmarks, vec!["tpch_mem", "tpch10"]);
     }
 
     #[test]
     fn detect_criterion_benchmark() {
-        let req = detect_benchmark(&df_config(), "run benchmark sql_planner").unwrap();
+        let req = detect_benchmark(&df_entry(), "run benchmark sql_planner").unwrap();
         assert_eq!(req.benchmarks, vec!["sql_planner"]);
     }
 
     #[test]
     fn detect_bogus_name_returns_none() {
-        assert!(detect_benchmark(&df_config(), "run benchmark bogus_name").is_none());
+        assert!(detect_benchmark(&df_entry(), "run benchmark bogus_name").is_none());
     }
 
     #[test]
     fn detect_one_invalid_rejects_all() {
-        assert!(detect_benchmark(&df_config(), "run benchmark tpch_mem bogus").is_none());
+        assert!(detect_benchmark(&df_entry(), "run benchmark tpch_mem bogus").is_none());
     }
 
     #[test]
     fn detect_not_a_trigger() {
-        assert!(detect_benchmark(&df_config(), "hello world").is_none());
+        assert!(detect_benchmark(&df_entry(), "hello world").is_none());
     }
 
     #[test]
     fn detect_empty_string() {
-        assert!(detect_benchmark(&df_config(), "").is_none());
+        assert!(detect_benchmark(&df_entry(), "").is_none());
     }
 
     #[test]
     fn detect_case_insensitive() {
-        assert!(detect_benchmark(&df_config(), "Run Benchmarks").is_some());
-        assert!(detect_benchmark(&df_config(), "RUN BENCHMARK tpch").is_some());
+        assert!(detect_benchmark(&df_entry(), "Run Benchmarks").is_some());
+        assert!(detect_benchmark(&df_entry(), "RUN BENCHMARK tpch").is_some());
     }
 
     #[test]
     fn detect_arrow_criterion() {
-        let req = detect_benchmark(&arrow_config(), "run benchmark arrow_reader").unwrap();
+        let req = detect_benchmark(&arrow_entry(), "run benchmark arrow_reader").unwrap();
         assert_eq!(req.benchmarks, vec!["arrow_reader"]);
     }
 
@@ -416,30 +318,12 @@ mod tests {
         assert!(!is_queue_request("run benchmarks"));
     }
 
-    // ── RepoConfig::for_repo ────────────────────────────────────────
-
-    #[test]
-    fn repo_config_datafusion() {
-        assert!(RepoConfig::for_repo("apache/datafusion").is_some());
-    }
-
-    #[test]
-    fn repo_config_arrow() {
-        let cfg = RepoConfig::for_repo("apache/arrow-rs").unwrap();
-        assert!(cfg.allowed_standard.is_empty());
-    }
-
-    #[test]
-    fn repo_config_unknown() {
-        assert!(RepoConfig::for_repo("unknown/repo").is_none());
-    }
-
-    // ── RepoConfig::classify_benchmark ──────────────────────────────
+    // ── RepoEntry::classify_benchmark ──────────────────────────────
 
     #[test]
     fn classify_df_standard() {
         assert_eq!(
-            df_config().classify_benchmark("tpch"),
+            df_entry().classify_benchmark("tpch"),
             Some(JobType::Standard)
         );
     }
@@ -447,20 +331,20 @@ mod tests {
     #[test]
     fn classify_df_criterion() {
         assert_eq!(
-            df_config().classify_benchmark("sql_planner"),
+            df_entry().classify_benchmark("sql_planner"),
             Some(JobType::Criterion)
         );
     }
 
     #[test]
     fn classify_df_bogus() {
-        assert_eq!(df_config().classify_benchmark("bogus"), None);
+        assert_eq!(df_entry().classify_benchmark("bogus"), None);
     }
 
     #[test]
     fn classify_arrow_criterion() {
         assert_eq!(
-            arrow_config().classify_benchmark("arrow_reader"),
+            arrow_entry().classify_benchmark("arrow_reader"),
             Some(JobType::ArrowCriterion)
         );
     }
@@ -469,13 +353,13 @@ mod tests {
 
     #[test]
     fn supported_msg_no_unsupported() {
-        let msg = supported_benchmarks_message(&df_config(), &[]);
+        let msg = supported_benchmarks_message(&df_entry(), &[]);
         assert!(!msg.contains("Unsupported"));
     }
 
     #[test]
     fn supported_msg_with_unsupported() {
-        let msg = supported_benchmarks_message(&df_config(), &["bogus".to_string()]);
+        let msg = supported_benchmarks_message(&df_entry(), &["bogus".to_string()]);
         assert!(msg.contains("Unsupported benchmarks: bogus"));
     }
 
@@ -483,7 +367,9 @@ mod tests {
 
     #[test]
     fn allowed_users_contains_known_user() {
-        let md = allowed_users_markdown();
+        let users: HashSet<String> =
+            ["alamb", "zhuqi-lucas"].iter().map(|s| s.to_string()).collect();
+        let md = allowed_users_markdown(&users);
         assert!(md.contains("[alamb](https://github.com/alamb)"));
         // Verify sorted (a before z)
         let pos_a = md.find("[alamb]").unwrap();

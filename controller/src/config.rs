@@ -1,6 +1,42 @@
 //! Controller configuration loaded from environment variables.
 
+use std::collections::{HashMap, HashSet};
+
 use anyhow::{Context, Result};
+use serde::Deserialize;
+
+/// Per-repo benchmark allowlists loaded from JSON config.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RepoEntry {
+    #[serde(default)]
+    pub standard: Vec<String>,
+    #[serde(default)]
+    pub criterion: Vec<String>,
+    /// `"datafusion"` (default) or `"arrow"` — controls criterion `JobType`.
+    #[serde(default = "default_criterion_type")]
+    pub criterion_type: String,
+}
+
+fn default_criterion_type() -> String {
+    "datafusion".to_string()
+}
+
+impl RepoEntry {
+    pub fn standard_set(&self) -> HashSet<&str> {
+        self.standard.iter().map(|s| s.as_str()).collect()
+    }
+
+    pub fn criterion_set(&self) -> HashSet<&str> {
+        self.criterion.iter().map(|s| s.as_str()).collect()
+    }
+}
+
+/// Top-level benchmark configuration deserialized from the `BENCHMARK_CONFIG` env var.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BenchmarkConfig {
+    pub allowed_users: HashSet<String>,
+    pub repos: HashMap<String, RepoEntry>,
+}
 
 /// Controller configuration loaded from environment variables.
 ///
@@ -10,7 +46,7 @@ use anyhow::{Context, Result};
 /// GITHUB_TOKEN              —                                    yes
 /// RUNNER_IMAGE              —                                    yes
 /// DATABASE_URL              sqlite:///data/benchmark.db           no
-/// WATCHED_REPOS             pydantic/datafusion                   no
+/// BENCHMARK_CONFIG           —                                    yes (JSON)
 /// POLL_INTERVAL_SECS        5                                     no
 /// RECONCILE_INTERVAL_SECS   10                                    no
 /// K8S_NAMESPACE             benchmarking                          no
@@ -25,7 +61,7 @@ use anyhow::{Context, Result};
 pub struct Config {
     pub github_token: String,
     pub database_url: String,
-    pub watched_repos: Vec<String>,
+    pub benchmark_config: BenchmarkConfig,
     pub poll_interval_secs: u64,
     pub reconcile_interval_secs: u64,
     pub k8s_namespace: String,
@@ -48,11 +84,10 @@ impl Config {
         Ok(Self {
             github_token: env_required("GITHUB_TOKEN")?,
             database_url: env_or("DATABASE_URL", "sqlite:///data/benchmark.db"),
-            watched_repos: env_or("WATCHED_REPOS", "pydantic/datafusion")
-                .split(':')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect(),
+            benchmark_config: serde_json::from_str(
+                &env_required("BENCHMARK_CONFIG")?,
+            )
+            .context("failed to parse BENCHMARK_CONFIG JSON")?,
             poll_interval_secs: env_or("POLL_INTERVAL_SECS", "5")
                 .parse()
                 .context("POLL_INTERVAL_SECS")?,

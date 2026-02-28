@@ -26,8 +26,9 @@ async fn main() -> Result<()> {
         .init();
 
     let config = config::Config::from_env()?;
+    let watched: Vec<&String> = config.benchmark_config.repos.keys().collect();
     info!(
-        repos = ?config.watched_repos,
+        repos = ?watched,
         poll_interval = config.poll_interval_secs,
         "starting benchmark controller"
     );

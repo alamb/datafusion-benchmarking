@@ -10,9 +10,9 @@ use tracing::{info, warn};
 
 use crate::benchmarks::{
     allowed_users_markdown, detect_benchmark, is_benchmark_trigger, is_queue_request,
-    supported_benchmarks_message, RepoConfig, ALLOWED_USERS,
+    supported_benchmarks_message,
 };
-use crate::config::Config;
+use crate::config::{BenchmarkConfig, Config, RepoEntry};
 use crate::db;
 use crate::github::GitHubClient;
 use crate::models::{GitHubComment, JobInsert};
@@ -40,8 +40,8 @@ pub async fn poll_loop(
 ) {
     let interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
     loop {
-        for repo in &config.watched_repos {
-            if let Err(e) = poll_repo(&pool, &gh, repo, config.poll_interval_secs).await {
+        for repo in config.benchmark_config.repos.keys() {
+            if let Err(e) = poll_repo(&pool, &gh, &config.benchmark_config, repo, config.poll_interval_secs).await {
                 warn!(repo, error = %e, "poll error");
             }
         }
@@ -56,9 +56,9 @@ pub async fn poll_loop(
 }
 
 /// Fetch and process recent comments for a single repo.
-async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str, poll_interval_secs: u64) -> Result<()> {
-    let repo_cfg = match RepoConfig::for_repo(repo) {
-        Some(c) => c,
+async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, bench_cfg: &BenchmarkConfig, repo: &str, poll_interval_secs: u64) -> Result<()> {
+    let repo_entry = match bench_cfg.repos.get(repo) {
+        Some(e) => e,
         None => {
             warn!(repo, "unknown repo, skipping");
             return Ok(());
@@ -77,7 +77,7 @@ async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str, poll_interv
     info!(repo, count = comments.len(), "fetched comments");
 
     for comment in &comments {
-        if let Err(e) = process_comment(pool, gh, &repo_cfg, comment).await {
+        if let Err(e) = process_comment(pool, gh, bench_cfg, repo, repo_entry, comment).await {
             warn!(comment_id = comment.id, error = %e, "process comment error");
         }
     }
@@ -92,12 +92,12 @@ async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str, poll_interv
 }
 
 /// Build the "not allowed" reply posted when a non-whitelisted user triggers a benchmark.
-fn not_allowed_message(login: &str, comment_url: &str) -> String {
+fn not_allowed_message(login: &str, comment_url: &str, allowed_users: &std::collections::HashSet<String>) -> String {
     format!(
         "Hi @{login}, thanks for the request ({comment_url}). \
          Only whitelisted users can trigger benchmarks. \
          Allowed users: {}.",
-        allowed_users_markdown()
+        allowed_users_markdown(allowed_users)
     )
 }
 
@@ -105,7 +105,9 @@ fn not_allowed_message(login: &str, comment_url: &str) -> String {
 async fn process_comment(
     pool: &SqlitePool,
     gh: &GitHubClient,
-    repo_cfg: &RepoConfig,
+    bench_cfg: &BenchmarkConfig,
+    repo: &str,
+    repo_entry: &RepoEntry,
     comment: &GitHubComment,
 ) -> Result<()> {
     if db::is_comment_seen(pool, comment.id).await? {
@@ -141,23 +143,23 @@ async fn process_comment(
 
     // Handle queue requests — mark seen immediately (nothing to retry).
     if is_queue_request(body) {
-        mark_seen(pool, comment, &repo_cfg.repo, pr_number).await?;
+        mark_seen(pool, comment, repo, pr_number).await?;
         info!(pr_number, login, "queue request");
         let jobs = db::get_queue_summary(pool).await?;
         let msg = format_queue_message(login, comment_url, &jobs);
-        gh.post_comment(&repo_cfg.repo, pr_number, &msg).await?;
+        gh.post_comment(repo, pr_number, &msg).await?;
         return Ok(());
     }
 
     // Try to detect benchmark trigger
-    let Some(request) = detect_benchmark(repo_cfg, body) else {
+    let Some(request) = detect_benchmark(repo_entry, body) else {
         // Not a valid trigger — mark seen immediately (nothing to retry).
-        mark_seen(pool, comment, &repo_cfg.repo, pr_number).await?;
+        mark_seen(pool, comment, repo, pr_number).await?;
         // Check if it looks like a failed trigger attempt
         if is_benchmark_trigger(body) {
-            if !ALLOWED_USERS.contains(login) {
-                let msg = not_allowed_message(login, comment_url);
-                gh.post_comment(&repo_cfg.repo, pr_number, &msg).await?;
+            if !bench_cfg.allowed_users.contains(login) {
+                let msg = not_allowed_message(login, comment_url, &bench_cfg.allowed_users);
+                gh.post_comment(repo, pr_number, &msg).await?;
             } else {
                 let requested: Vec<String> = body
                     .trim()
@@ -170,25 +172,25 @@ async fn process_comment(
                     .collect();
                 let msg = format!(
                     "Hi @{login}, thanks for the request ({comment_url}).\n\n{}",
-                    supported_benchmarks_message(repo_cfg, &requested)
+                    supported_benchmarks_message(repo_entry, &requested)
                 );
-                gh.post_comment(&repo_cfg.repo, pr_number, &msg).await?;
+                gh.post_comment(repo, pr_number, &msg).await?;
             }
         }
         return Ok(());
     };
 
     // User must be allowed — mark seen immediately (nothing to retry).
-    if !ALLOWED_USERS.contains(login) {
-        mark_seen(pool, comment, &repo_cfg.repo, pr_number).await?;
-        let msg = not_allowed_message(login, comment_url);
-        gh.post_comment(&repo_cfg.repo, pr_number, &msg).await?;
+    if !bench_cfg.allowed_users.contains(login) {
+        mark_seen(pool, comment, repo, pr_number).await?;
+        let msg = not_allowed_message(login, comment_url, &bench_cfg.allowed_users);
+        gh.post_comment(repo, pr_number, &msg).await?;
         return Ok(());
     }
 
     info!(pr_number, login, benchmarks = ?request.benchmarks, "scheduling benchmark");
 
-    let pr_url = format!("https://github.com/{}/pull/{}", repo_cfg.repo, pr_number);
+    let pr_url = format!("https://github.com/{}/pull/{}", repo, pr_number);
     let benchmarks_json = serde_json::to_string(&request.benchmarks)?;
     let env_vars_json = serde_json::to_string(&request.env_vars)?;
 
@@ -199,7 +201,7 @@ async fn process_comment(
             pool,
             &JobInsert {
                 comment_id: comment.id,
-                repo: &repo_cfg.repo,
+                repo,
                 pr_number,
                 pr_url: &pr_url,
                 login,
@@ -212,7 +214,7 @@ async fn process_comment(
     } else {
         // Group benchmarks by type
         for bench in &request.benchmarks {
-            let job_type = repo_cfg
+            let job_type = repo_entry
                 .classify_benchmark(bench)
                 .map(|jt| jt.as_str())
                 .unwrap_or("standard");
@@ -222,7 +224,7 @@ async fn process_comment(
                 pool,
                 &JobInsert {
                     comment_id: comment.id,
-                    repo: &repo_cfg.repo,
+                    repo,
                     pr_number,
                     pr_url: &pr_url,
                     login,
@@ -236,10 +238,10 @@ async fn process_comment(
     }
 
     // Job insert succeeded — now safe to mark the comment as seen.
-    mark_seen(pool, comment, &repo_cfg.repo, pr_number).await?;
+    mark_seen(pool, comment, repo, pr_number).await?;
 
     // React with rocket
-    if let Err(e) = gh.post_reaction(&repo_cfg.repo, comment.id, "rocket").await {
+    if let Err(e) = gh.post_reaction(repo, comment.id, "rocket").await {
         warn!(error = %e, "failed to post reaction");
     }
 
@@ -319,7 +321,9 @@ mod tests {
 
     #[test]
     fn not_allowed_msg_contains_fields() {
-        let msg = not_allowed_message("testuser", "https://example.com/comment/1");
+        let users: std::collections::HashSet<String> =
+            ["alamb"].iter().map(|s| s.to_string()).collect();
+        let msg = not_allowed_message("testuser", "https://example.com/comment/1", &users);
         assert!(msg.contains("@testuser"));
         assert!(msg.contains("https://example.com/comment/1"));
         assert!(msg.contains("whitelisted") || msg.contains("Whitelisted"));
