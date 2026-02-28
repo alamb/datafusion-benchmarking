@@ -56,6 +56,7 @@ pub async fn poll_loop(
 }
 
 /// Fetch and process recent comments for a single repo.
+#[tracing::instrument(skip(pool, gh, bench_cfg, poll_interval_secs))]
 async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, bench_cfg: &BenchmarkConfig, repo: &str, poll_interval_secs: u64) -> Result<()> {
     let repo_entry = match bench_cfg.repos.get(repo) {
         Some(e) => e,
@@ -78,7 +79,7 @@ async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, bench_cfg: &BenchmarkCo
 
     for comment in &comments {
         if let Err(e) = process_comment(pool, gh, bench_cfg, repo, repo_entry, comment).await {
-            warn!(comment_id = comment.id, error = %e, "process comment error");
+            warn!(comment_id = comment.id, error = ?e, "process comment error");
         }
     }
 
@@ -141,20 +142,18 @@ async fn process_comment(
         .await
     }
 
-    // Handle queue requests — mark seen immediately (nothing to retry).
+    // Handle queue requests — mark seen only after reply succeeds.
     if is_queue_request(body) {
-        mark_seen(pool, comment, repo, pr_number).await?;
         info!(pr_number, login, "queue request");
         let jobs = db::get_queue_summary(pool).await?;
         let msg = format_queue_message(login, comment_url, &jobs);
         gh.post_comment(repo, pr_number, &msg).await?;
+        mark_seen(pool, comment, repo, pr_number).await?;
         return Ok(());
     }
 
     // Try to detect benchmark trigger
     let Some(request) = detect_benchmark(repo_entry, body) else {
-        // Not a valid trigger — mark seen immediately (nothing to retry).
-        mark_seen(pool, comment, repo, pr_number).await?;
         // Check if it looks like a failed trigger attempt
         if is_benchmark_trigger(body) {
             if !bench_cfg.allowed_users.contains(login) {
@@ -177,14 +176,16 @@ async fn process_comment(
                 gh.post_comment(repo, pr_number, &msg).await?;
             }
         }
+        // Mark seen after any reply succeeds (or if not a trigger at all).
+        mark_seen(pool, comment, repo, pr_number).await?;
         return Ok(());
     };
 
-    // User must be allowed — mark seen immediately (nothing to retry).
+    // User must be allowed — mark seen only after reply succeeds.
     if !bench_cfg.allowed_users.contains(login) {
-        mark_seen(pool, comment, repo, pr_number).await?;
         let msg = not_allowed_message(login, comment_url, &bench_cfg.allowed_users);
         gh.post_comment(repo, pr_number, &msg).await?;
+        mark_seen(pool, comment, repo, pr_number).await?;
         return Ok(());
     }
 
