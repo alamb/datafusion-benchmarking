@@ -95,7 +95,10 @@ async fn main() -> Result<()> {
             error!("poller exited: {:?}", r);
         }
         r = reconciler => {
-            error!("reconciler exited: {:?}", r);
+            match r {
+                Ok(Err(e)) => error!("reconciler failed: {e:#}"),
+                r => error!("reconciler exited: {r:?}"),
+            }
         }
         r = cleanup => {
             error!("cleanup exited: {:?}", r);

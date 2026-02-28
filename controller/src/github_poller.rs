@@ -115,26 +115,33 @@ async fn process_comment(
     let body = comment.body_text();
     let login = comment.login();
     let comment_url = comment.url();
-    let created_at = comment.created_at_str();
     let issue_url = comment.issue_url_str();
 
     let Some(pr_number) = pr_number_from_url(issue_url) else {
         return Ok(());
     };
 
-    // Mark seen unconditionally — we already bailed if previously seen.
-    db::mark_comment_seen(
-        pool,
-        comment.id,
-        &repo_cfg.repo,
-        pr_number,
-        login,
-        created_at,
-    )
-    .await?;
+    /// Helper to mark a comment as seen (used for non-trigger early returns).
+    async fn mark_seen(
+        pool: &SqlitePool,
+        comment: &GitHubComment,
+        repo: &str,
+        pr_number: i64,
+    ) -> Result<()> {
+        db::mark_comment_seen(
+            pool,
+            comment.id,
+            repo,
+            pr_number,
+            comment.login(),
+            comment.created_at_str(),
+        )
+        .await
+    }
 
-    // Handle queue requests
+    // Handle queue requests — mark seen immediately (nothing to retry).
     if is_queue_request(body) {
+        mark_seen(pool, comment, &repo_cfg.repo, pr_number).await?;
         info!(pr_number, login, "queue request");
         let jobs = db::get_queue_summary(pool).await?;
         let msg = format_queue_message(login, comment_url, &jobs);
@@ -144,6 +151,8 @@ async fn process_comment(
 
     // Try to detect benchmark trigger
     let Some(request) = detect_benchmark(repo_cfg, body) else {
+        // Not a valid trigger — mark seen immediately (nothing to retry).
+        mark_seen(pool, comment, &repo_cfg.repo, pr_number).await?;
         // Check if it looks like a failed trigger attempt
         if is_benchmark_trigger(body) {
             if !ALLOWED_USERS.contains(login) {
@@ -169,8 +178,9 @@ async fn process_comment(
         return Ok(());
     };
 
-    // User must be allowed
+    // User must be allowed — mark seen immediately (nothing to retry).
     if !ALLOWED_USERS.contains(login) {
+        mark_seen(pool, comment, &repo_cfg.repo, pr_number).await?;
         let msg = not_allowed_message(login, comment_url);
         gh.post_comment(&repo_cfg.repo, pr_number, &msg).await?;
         return Ok(());
@@ -224,6 +234,9 @@ async fn process_comment(
             .await?;
         }
     }
+
+    // Job insert succeeded — now safe to mark the comment as seen.
+    mark_seen(pool, comment, &repo_cfg.repo, pr_number).await?;
 
     // React with rocket
     if let Err(e) = gh.post_reaction(&repo_cfg.repo, comment.id, "rocket").await {

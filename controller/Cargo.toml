@@ -18,3 +18,4 @@ anyhow = "1"
 regex = "1"
 once_cell = "1"
 tokio-util = { version = "0.7", features = ["rt"] }
+backon = "1"

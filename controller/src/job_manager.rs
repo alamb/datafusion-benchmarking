@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container, EnvVar, EnvVarSource, EphemeralVolumeSource, PersistentVolumeClaimTemplate, PodSpec,
@@ -24,10 +24,10 @@ use crate::db;
 use crate::github::GitHubClient;
 use crate::models::{BenchmarkJob, JobStatus};
 
-/// Bit mask applied to `comment_id` to shorten the K8s Job name suffix.
-const JOB_NAME_HASH_MASK: u64 = 0xFFFF;
-
 /// Infinite reconciliation loop that drives jobs through their lifecycle.
+///
+/// Returns `Err` if the K8s client fails to initialize, causing the controller
+/// to shut down so K8s can restart the pod.
 ///
 /// ```text
 /// ┌─────────────────────────────────────────────────────────┐
@@ -48,16 +48,12 @@ pub async fn reconcile_loop(
     pool: SqlitePool,
     gh: GitHubClient,
     token: tokio_util::sync::CancellationToken,
-) {
+) -> Result<()> {
     let interval = tokio::time::Duration::from_secs(config.reconcile_interval_secs);
 
-    let kube_client = match KubeClient::try_default().await {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to create kube client");
-            return;
-        }
-    };
+    let kube_client = KubeClient::try_default()
+        .await
+        .context("failed to create kube client")?;
 
     loop {
         if let Err(e) = reconcile_pending(&config, &pool, &gh, &kube_client).await {
@@ -74,6 +70,7 @@ pub async fn reconcile_loop(
             }
         }
     }
+    Ok(())
 }
 
 /// Create K8s Jobs for all pending benchmark rows and transition them to running/failed.
@@ -245,11 +242,7 @@ async fn create_k8s_job(
     let benchmarks: Vec<String> = serde_json::from_str(&job.benchmarks)?;
     let user_env_vars: Vec<String> = serde_json::from_str(&job.env_vars)?;
 
-    let job_name = format!(
-        "bench-{}-{:x}",
-        job.id,
-        job.comment_id.unsigned_abs() % JOB_NAME_HASH_MASK
-    );
+    let job_name = format!("bench-{}", job.id);
 
     let cpu = job.cpu_request.as_deref().unwrap_or(&config.default_cpu);
     let memory = job
