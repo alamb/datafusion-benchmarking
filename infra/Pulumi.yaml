@@ -1,8 +1,3 @@
 name: datafusion-infra
 runtime: nodejs
 description: GKE Autopilot infrastructure for DataFusion benchmarking
-config:
-  gcp:project:
-    description: GCP project ID
-  gcp:region:
-    description: GCP region
