@@ -12,6 +12,8 @@ BENCH_NAME=${BENCH_NAME:-"sql_planner"}
 BENCH_FILTER=${BENCH_FILTER:-""}
 BENCH_COMMAND="cargo bench --features=parquet --bench ${BENCH_NAME}"
 
+REPO_URL="https://github.com/${REPO}.git"
+
 BRANCH_DIR="/workspace/datafusion-branch"
 BASE_DIR="/workspace/datafusion-base"
 
@@ -19,7 +21,7 @@ BASE_DIR="/workspace/datafusion-base"
 # Clone and checkout the PR branch
 ######
 echo "=== Cloning PR branch ==="
-git clone --depth=200 https://github.com/apache/datafusion.git "${BRANCH_DIR}"
+git clone --depth=200 "${REPO_URL}" "${BRANCH_DIR}"
 cd "${BRANCH_DIR}"
 git fetch origin
 gh pr checkout "${PR_URL}" --force
@@ -32,7 +34,7 @@ BENCH_BRANCH_NAME=${BRANCH_NAME//\//_}
 # Clone and checkout the merge-base
 ######
 echo "=== Cloning merge-base ==="
-git clone --depth=200 https://github.com/apache/datafusion.git "${BASE_DIR}"
+git clone --depth=200 "${REPO_URL}" "${BASE_DIR}"
 cd "${BASE_DIR}"
 git -c advice.detachedHead=false checkout "${MERGE_BASE}"
 
@@ -42,7 +44,7 @@ git -c advice.detachedHead=false checkout "${MERGE_BASE}"
 cat > /tmp/comment.txt <<EOL
 🤖 Criterion benchmark running (GKE) | [trigger](${COMMENT_URL})
 \`$(uname -a)\`
-Comparing ${BRANCH_NAME} (${BRANCH_BASE}) to ${MERGE_BASE} [diff](https://github.com/apache/datafusion/compare/${MERGE_BASE}..${BRANCH_BASE})
+Comparing ${BRANCH_NAME} (${BRANCH_BASE}) to ${MERGE_BASE} [diff](https://github.com/${REPO}/compare/${MERGE_BASE}..${BRANCH_BASE})
 BENCH_NAME=${BENCH_NAME}
 BENCH_COMMAND=${BENCH_COMMAND}
 BENCH_FILTER=${BENCH_FILTER}

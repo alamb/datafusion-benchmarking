@@ -12,6 +12,8 @@ BENCH_NAME=${BENCH_NAME:-"concatenate_kernel"}
 BENCH_FILTER=${BENCH_FILTER:-""}
 BENCH_COMMAND="cargo bench --features=arrow,async,test_common,experimental,object_store --bench ${BENCH_NAME}"
 
+REPO_URL="https://github.com/${REPO}.git"
+
 BRANCH_DIR="/workspace/arrow-rs-branch"
 BASE_DIR="/workspace/arrow-rs-base"
 
@@ -19,7 +21,7 @@ BASE_DIR="/workspace/arrow-rs-base"
 # Clone and checkout the PR branch
 ######
 echo "=== Cloning PR branch ==="
-git clone --depth=200 https://github.com/apache/arrow-rs.git "${BRANCH_DIR}"
+git clone --depth=200 "${REPO_URL}" "${BRANCH_DIR}"
 cd "${BRANCH_DIR}"
 git fetch origin
 gh pr checkout "${PR_URL}" --force
@@ -34,7 +36,7 @@ cargo update
 # Clone and checkout the merge-base
 ######
 echo "=== Cloning merge-base ==="
-git clone --depth=200 https://github.com/apache/arrow-rs.git "${BASE_DIR}"
+git clone --depth=200 "${REPO_URL}" "${BASE_DIR}"
 cd "${BASE_DIR}"
 git -c advice.detachedHead=false checkout "${MERGE_BASE}"
 git submodule update --init
@@ -46,7 +48,7 @@ cargo update
 cat > /tmp/comment.txt <<EOL
 🤖 Arrow criterion benchmark running (GKE) | [trigger](${COMMENT_URL})
 \`$(uname -a)\`
-Comparing ${BRANCH_NAME} (${BRANCH_BASE}) to ${MERGE_BASE} [diff](https://github.com/apache/arrow-rs/compare/${MERGE_BASE}..${BRANCH_BASE})
+Comparing ${BRANCH_NAME} (${BRANCH_BASE}) to ${MERGE_BASE} [diff](https://github.com/${REPO}/compare/${MERGE_BASE}..${BRANCH_BASE})
 BENCH_NAME=${BENCH_NAME}
 BENCH_COMMAND=${BENCH_COMMAND}
 BENCH_FILTER=${BENCH_FILTER}

@@ -10,6 +10,8 @@ set -euo pipefail
 BENCHMARKS=${BENCHMARKS:-"tpch_mem clickbench_partitioned clickbench_extended"}
 CARGO_COMMAND="cargo run --release"
 
+REPO_URL="https://github.com/${REPO}.git"
+
 BRANCH_DIR="/workspace/datafusion-branch"
 BASE_DIR="/workspace/datafusion-base"
 BENCH_DIR="/workspace/datafusion-bench"
@@ -18,7 +20,7 @@ BENCH_DIR="/workspace/datafusion-bench"
 # Clone and checkout the PR branch
 ######
 echo "=== Cloning PR branch ==="
-git clone --depth=200 https://github.com/apache/datafusion.git "${BRANCH_DIR}"
+git clone --depth=200 "${REPO_URL}" "${BRANCH_DIR}"
 cd "${BRANCH_DIR}"
 git fetch origin
 gh pr checkout "${PR_URL}" --force
@@ -35,7 +37,7 @@ BRANCH_PID=$!
 # Clone and checkout the merge-base
 ######
 echo "=== Cloning merge-base ==="
-git clone --depth=200 https://github.com/apache/datafusion.git "${BASE_DIR}"
+git clone --depth=200 "${REPO_URL}" "${BASE_DIR}"
 cd "${BASE_DIR}"
 git -c advice.detachedHead=false checkout "${MERGE_BASE}"
 
@@ -49,7 +51,7 @@ BASE_PID=$!
 cat > /tmp/comment.txt <<EOL
 🤖 Benchmark running (GKE) | [trigger](${COMMENT_URL})
 \`$(uname -a)\`
-Comparing ${BRANCH_NAME} (${BRANCH_BASE}) to ${MERGE_BASE} [diff](https://github.com/apache/datafusion/compare/${MERGE_BASE}..${BRANCH_BASE}) using: ${BENCHMARKS}
+Comparing ${BRANCH_NAME} (${BRANCH_BASE}) to ${MERGE_BASE} [diff](https://github.com/${REPO}/compare/${MERGE_BASE}..${BRANCH_BASE}) using: ${BENCHMARKS}
 Results will be posted here when complete
 EOL
 gh pr comment "${PR_URL}" --body-file /tmp/comment.txt
@@ -63,7 +65,7 @@ echo "=== Builds complete ==="
 # Run benchmarks from a third checkout (uses bench.sh data/run/compare)
 ######
 echo "=== Setting up bench runner ==="
-git clone --depth=200 https://github.com/apache/datafusion.git "${BENCH_DIR}"
+git clone --depth=200 "${REPO_URL}" "${BENCH_DIR}"
 cd "${BENCH_DIR}"
 git -c advice.detachedHead=false checkout origin/main
 cd benchmarks
