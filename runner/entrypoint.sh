@@ -9,7 +9,7 @@ set -euo pipefail
 #   BENCH_NAME    - benchmark name (for criterion types)
 #   REPO          - repo name (e.g. apache/datafusion)
 
-echo "${GITHUB_TOKEN}" | gh auth login --with-token
+# gh CLI automatically uses GITHUB_TOKEN from the environment
 
 OUTPUT_FILE="/tmp/benchmark_output.txt"
 : > "${OUTPUT_FILE}"
