@@ -38,6 +38,7 @@ jobs:
         with:
           organization: ${{ vars.PULUMI_ORG }}
           requested-token-type: urn:pulumi:token-type:access_token:personal
+          scope: user:${{ vars.PULUMI_USER }}
 
       - uses: pulumi/actions@v5
         with:
