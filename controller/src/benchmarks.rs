@@ -287,3 +287,232 @@ pub fn allowed_users_markdown() -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn df_config() -> RepoConfig {
+        RepoConfig::for_repo("apache/datafusion").unwrap()
+    }
+
+    fn arrow_config() -> RepoConfig {
+        RepoConfig::for_repo("apache/arrow-rs").unwrap()
+    }
+
+    // ── detect_benchmark ────────────────────────────────────────────
+
+    #[test]
+    fn detect_default_suite() {
+        let req = detect_benchmark(&df_config(), "run benchmarks").unwrap();
+        assert!(req.benchmarks.is_empty());
+        assert!(req.env_vars.is_empty());
+    }
+
+    #[test]
+    fn detect_default_suite_with_env_vars() {
+        let body = "run benchmarks\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
+        let req = detect_benchmark(&df_config(), body).unwrap();
+        assert!(req.benchmarks.is_empty());
+        assert_eq!(req.env_vars, vec!["DATAFUSION_RUNTIME_MEMORY_LIMIT=1G"]);
+    }
+
+    #[test]
+    fn detect_single_named() {
+        let req = detect_benchmark(&df_config(), "run benchmark tpch_mem").unwrap();
+        assert_eq!(req.benchmarks, vec!["tpch_mem"]);
+    }
+
+    #[test]
+    fn detect_multiple_named() {
+        let req = detect_benchmark(&df_config(), "run benchmark tpch_mem tpch10").unwrap();
+        assert_eq!(req.benchmarks, vec!["tpch_mem", "tpch10"]);
+    }
+
+    #[test]
+    fn detect_criterion_benchmark() {
+        let req = detect_benchmark(&df_config(), "run benchmark sql_planner").unwrap();
+        assert_eq!(req.benchmarks, vec!["sql_planner"]);
+    }
+
+    #[test]
+    fn detect_bogus_name_returns_none() {
+        assert!(detect_benchmark(&df_config(), "run benchmark bogus_name").is_none());
+    }
+
+    #[test]
+    fn detect_one_invalid_rejects_all() {
+        assert!(detect_benchmark(&df_config(), "run benchmark tpch_mem bogus").is_none());
+    }
+
+    #[test]
+    fn detect_not_a_trigger() {
+        assert!(detect_benchmark(&df_config(), "hello world").is_none());
+    }
+
+    #[test]
+    fn detect_empty_string() {
+        assert!(detect_benchmark(&df_config(), "").is_none());
+    }
+
+    #[test]
+    fn detect_case_insensitive() {
+        assert!(detect_benchmark(&df_config(), "Run Benchmarks").is_some());
+        assert!(detect_benchmark(&df_config(), "RUN BENCHMARK tpch").is_some());
+    }
+
+    #[test]
+    fn detect_arrow_criterion() {
+        let req = detect_benchmark(&arrow_config(), "run benchmark arrow_reader").unwrap();
+        assert_eq!(req.benchmarks, vec!["arrow_reader"]);
+    }
+
+    // ── is_benchmark_trigger ────────────────────────────────────────
+
+    #[test]
+    fn trigger_named() {
+        assert!(is_benchmark_trigger("run benchmark tpch"));
+    }
+
+    #[test]
+    fn trigger_default() {
+        assert!(is_benchmark_trigger("run benchmarks"));
+    }
+
+    #[test]
+    fn trigger_case_insensitive() {
+        assert!(is_benchmark_trigger("Run Benchmark FOO"));
+    }
+
+    #[test]
+    fn trigger_not_matching() {
+        assert!(!is_benchmark_trigger("hello"));
+    }
+
+    #[test]
+    fn trigger_leading_whitespace() {
+        assert!(is_benchmark_trigger("  run benchmark x  "));
+    }
+
+    // ── is_queue_request ────────────────────────────────────────────
+
+    #[test]
+    fn queue_request_exact() {
+        assert!(is_queue_request("show benchmark queue"));
+    }
+
+    #[test]
+    fn queue_request_case_insensitive() {
+        assert!(is_queue_request("SHOW BENCHMARK QUEUE"));
+    }
+
+    #[test]
+    fn queue_request_extra_words() {
+        assert!(!is_queue_request("show benchmark queue please"));
+    }
+
+    #[test]
+    fn queue_request_wrong_phrase() {
+        assert!(!is_queue_request("run benchmarks"));
+    }
+
+    // ── RepoConfig::for_repo ────────────────────────────────────────
+
+    #[test]
+    fn repo_config_datafusion() {
+        assert!(RepoConfig::for_repo("apache/datafusion").is_some());
+    }
+
+    #[test]
+    fn repo_config_arrow() {
+        let cfg = RepoConfig::for_repo("apache/arrow-rs").unwrap();
+        assert!(cfg.allowed_standard.is_empty());
+    }
+
+    #[test]
+    fn repo_config_unknown() {
+        assert!(RepoConfig::for_repo("unknown/repo").is_none());
+    }
+
+    // ── RepoConfig::classify_benchmark ──────────────────────────────
+
+    #[test]
+    fn classify_df_standard() {
+        assert_eq!(df_config().classify_benchmark("tpch"), Some(JobType::Standard));
+    }
+
+    #[test]
+    fn classify_df_criterion() {
+        assert_eq!(df_config().classify_benchmark("sql_planner"), Some(JobType::Criterion));
+    }
+
+    #[test]
+    fn classify_df_bogus() {
+        assert_eq!(df_config().classify_benchmark("bogus"), None);
+    }
+
+    #[test]
+    fn classify_arrow_criterion() {
+        assert_eq!(
+            arrow_config().classify_benchmark("arrow_reader"),
+            Some(JobType::ArrowCriterion)
+        );
+    }
+
+    // ── supported_benchmarks_message ────────────────────────────────
+
+    #[test]
+    fn supported_msg_no_unsupported() {
+        let msg = supported_benchmarks_message(&df_config(), &[]);
+        assert!(!msg.contains("Unsupported"));
+    }
+
+    #[test]
+    fn supported_msg_with_unsupported() {
+        let msg = supported_benchmarks_message(
+            &df_config(),
+            &["bogus".to_string()],
+        );
+        assert!(msg.contains("Unsupported benchmarks: bogus"));
+    }
+
+    // ── allowed_users_markdown ──────────────────────────────────────
+
+    #[test]
+    fn allowed_users_contains_known_user() {
+        let md = allowed_users_markdown();
+        assert!(md.contains("[alamb](https://github.com/alamb)"));
+        // Verify sorted (a before z)
+        let pos_a = md.find("[alamb]").unwrap();
+        let pos_z = md.find("[zhuqi-lucas]").unwrap();
+        assert!(pos_a < pos_z);
+    }
+
+    // ── parse_env_vars ──────────────────────────────────────────────
+
+    #[test]
+    fn parse_env_simple() {
+        assert_eq!(parse_env_vars(&["FOO=bar"]), vec!["FOO=bar"]);
+    }
+
+    #[test]
+    fn parse_env_dots_hyphens() {
+        assert_eq!(parse_env_vars(&["FOO=bar.baz-1"]), vec!["FOO=bar.baz-1"]);
+    }
+
+    #[test]
+    fn parse_env_lowercase_key_rejected() {
+        assert!(parse_env_vars(&["foo=bar"]).is_empty());
+    }
+
+    #[test]
+    fn parse_env_space_in_value_rejected() {
+        assert!(parse_env_vars(&["FOO=bar baz"]).is_empty());
+    }
+
+    #[test]
+    fn parse_env_filters_blanks() {
+        let result = parse_env_vars(&["", "  ", "FOO=bar"]);
+        assert_eq!(result, vec!["FOO=bar"]);
+    }
+}

@@ -142,3 +142,96 @@ impl GitHubComment {
 pub struct GitHubUser {
     pub login: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── JobType::as_str ─────────────────────────────────────────────
+
+    #[test]
+    fn job_type_standard() {
+        assert_eq!(JobType::Standard.as_str(), "standard");
+    }
+
+    #[test]
+    fn job_type_criterion() {
+        assert_eq!(JobType::Criterion.as_str(), "criterion");
+    }
+
+    #[test]
+    fn job_type_arrow_criterion() {
+        assert_eq!(JobType::ArrowCriterion.as_str(), "arrow_criterion");
+    }
+
+    // ── JobStatus::as_str ───────────────────────────────────────────
+
+    #[test]
+    fn job_status_pending() {
+        assert_eq!(JobStatus::Pending.as_str(), "pending");
+    }
+
+    #[test]
+    fn job_status_running() {
+        assert_eq!(JobStatus::Running.as_str(), "running");
+    }
+
+    #[test]
+    fn job_status_completed() {
+        assert_eq!(JobStatus::Completed.as_str(), "completed");
+    }
+
+    #[test]
+    fn job_status_failed() {
+        assert_eq!(JobStatus::Failed.as_str(), "failed");
+    }
+
+    // ── GitHubComment accessors ─────────────────────────────────────
+
+    #[test]
+    fn comment_all_some() {
+        let c = GitHubComment {
+            id: 1,
+            body: Some("hello".to_string()),
+            user: Some(GitHubUser { login: "alice".to_string() }),
+            html_url: Some("https://example.com".to_string()),
+            created_at: Some("2024-01-01".to_string()),
+            issue_url: Some("https://api.github.com/repos/o/r/issues/1".to_string()),
+        };
+        assert_eq!(c.body_text(), "hello");
+        assert_eq!(c.login(), "alice");
+        assert_eq!(c.url(), "https://example.com");
+        assert_eq!(c.created_at_str(), "2024-01-01");
+        assert_eq!(c.issue_url_str(), "https://api.github.com/repos/o/r/issues/1");
+    }
+
+    #[test]
+    fn comment_all_none() {
+        let c = GitHubComment {
+            id: 2,
+            body: None,
+            user: None,
+            html_url: None,
+            created_at: None,
+            issue_url: None,
+        };
+        assert_eq!(c.body_text(), "");
+        assert_eq!(c.login(), "");
+        assert_eq!(c.url(), "");
+        assert_eq!(c.created_at_str(), "");
+        assert_eq!(c.issue_url_str(), "");
+    }
+
+    #[test]
+    fn comment_missing_user() {
+        let c = GitHubComment {
+            id: 3,
+            body: Some("body".to_string()),
+            user: None,
+            html_url: Some("url".to_string()),
+            created_at: Some("ts".to_string()),
+            issue_url: Some("iu".to_string()),
+        };
+        assert_eq!(c.login(), "");
+    }
+}

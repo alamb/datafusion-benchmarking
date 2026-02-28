@@ -84,3 +84,37 @@ fn env_required(key: &str) -> Result<String> {
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Use unique env var names to avoid conflicts with parallel tests.
+
+    #[test]
+    fn env_or_returns_default_when_unset() {
+        let val = env_or("__TEST_UNSET_VAR_12345__", "fallback");
+        assert_eq!(val, "fallback");
+    }
+
+    #[test]
+    fn env_or_returns_value_when_set() {
+        std::env::set_var("__TEST_ENV_OR_SET__", "hello");
+        let val = env_or("__TEST_ENV_OR_SET__", "fallback");
+        assert_eq!(val, "hello");
+        std::env::remove_var("__TEST_ENV_OR_SET__");
+    }
+
+    #[test]
+    fn env_required_errors_when_unset() {
+        assert!(env_required("__TEST_REQUIRED_MISSING__").is_err());
+    }
+
+    #[test]
+    fn env_required_returns_value_when_set() {
+        std::env::set_var("__TEST_REQUIRED_SET__", "world");
+        let val = env_required("__TEST_REQUIRED_SET__").unwrap();
+        assert_eq!(val, "world");
+        std::env::remove_var("__TEST_REQUIRED_SET__");
+    }
+}

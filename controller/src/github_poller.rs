@@ -253,3 +253,84 @@ fn format_queue_message(
 
     lines.join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::BenchmarkJob;
+
+    // ── pr_number_from_url ──────────────────────────────────────────
+
+    #[test]
+    fn pr_number_standard_url() {
+        let url = "https://api.github.com/repos/apache/datafusion/issues/42";
+        assert_eq!(pr_number_from_url(url), Some(42));
+    }
+
+    #[test]
+    fn pr_number_trailing_slash() {
+        let url = "https://api.github.com/repos/apache/datafusion/issues/42/";
+        assert_eq!(pr_number_from_url(url), Some(42));
+    }
+
+    #[test]
+    fn pr_number_empty() {
+        assert_eq!(pr_number_from_url(""), None);
+    }
+
+    #[test]
+    fn pr_number_not_a_number() {
+        assert_eq!(pr_number_from_url("https://example.com/not-a-number"), None);
+    }
+
+    #[test]
+    fn pr_number_trailing_slash_only() {
+        assert_eq!(pr_number_from_url("https://example.com/"), None);
+    }
+
+    // ── not_allowed_message ─────────────────────────────────────────
+
+    #[test]
+    fn not_allowed_msg_contains_fields() {
+        let msg = not_allowed_message("testuser", "https://example.com/comment/1");
+        assert!(msg.contains("@testuser"));
+        assert!(msg.contains("https://example.com/comment/1"));
+        assert!(msg.contains("whitelisted") || msg.contains("Whitelisted"));
+    }
+
+    // ── format_queue_message ────────────────────────────────────────
+
+    #[test]
+    fn format_queue_empty() {
+        let msg = format_queue_message("alice", "https://example.com/c/1", &[]);
+        assert!(msg.contains("No pending jobs."));
+    }
+
+    #[test]
+    fn format_queue_with_jobs() {
+        let job = BenchmarkJob {
+            id: 1,
+            comment_id: 100,
+            repo: "apache/datafusion".to_string(),
+            pr_number: 42,
+            pr_url: "https://github.com/apache/datafusion/pull/42".to_string(),
+            login: "alice".to_string(),
+            benchmarks: "[\"tpch\"]".to_string(),
+            env_vars: "[]".to_string(),
+            job_type: "standard".to_string(),
+            cpu_request: None,
+            memory_request: None,
+            cpu_arch: None,
+            k8s_job_name: None,
+            status: "pending".to_string(),
+            error_message: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        let msg = format_queue_message("bob", "https://example.com/c/2", &[job]);
+        assert!(msg.contains("| ID |"));
+        assert!(msg.contains("| 1 |"));
+        assert!(msg.contains("apache/datafusion"));
+        assert!(msg.contains("#42"));
+    }
+}

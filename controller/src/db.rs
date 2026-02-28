@@ -153,3 +153,204 @@ pub async fn get_queue_summary(pool: &SqlitePool) -> Result<Vec<BenchmarkJob>> {
     .await?;
     Ok(jobs)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn test_pool() -> SqlitePool {
+        connect("sqlite::memory:").await.unwrap()
+    }
+
+    fn test_job(comment_id: i64) -> JobInsert<'static> {
+        JobInsert {
+            comment_id,
+            repo: "apache/datafusion",
+            pr_number: 42,
+            pr_url: "https://github.com/apache/datafusion/pull/42",
+            login: "alice",
+            benchmarks: "[\"tpch\"]",
+            env_vars: "[]",
+            job_type: "standard",
+        }
+    }
+
+    // ── mark_comment_seen + is_comment_seen ─────────────────────────
+
+    #[tokio::test]
+    async fn comment_seen_lifecycle() {
+        let pool = test_pool().await;
+
+        assert!(!is_comment_seen(&pool, 1).await.unwrap());
+
+        mark_comment_seen(&pool, 1, "apache/datafusion", 42, "alice", "2024-01-01")
+            .await
+            .unwrap();
+        assert!(is_comment_seen(&pool, 1).await.unwrap());
+
+        // Idempotent (INSERT OR IGNORE)
+        mark_comment_seen(&pool, 1, "apache/datafusion", 42, "alice", "2024-01-01")
+            .await
+            .unwrap();
+        assert!(is_comment_seen(&pool, 1).await.unwrap());
+    }
+
+    // ── insert_job + get_pending_jobs ───────────────────────────────
+
+    #[tokio::test]
+    async fn insert_and_get_pending() {
+        let pool = test_pool().await;
+        mark_comment_seen(&pool, 100, "apache/datafusion", 42, "alice", "2024-01-01")
+            .await
+            .unwrap();
+
+        let id = insert_job(&pool, &test_job(100)).await.unwrap();
+        assert!(id > 0);
+
+        let pending = get_pending_jobs(&pool).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].repo, "apache/datafusion");
+        assert_eq!(pending[0].pr_number, 42);
+        assert_eq!(pending[0].login, "alice");
+        assert_eq!(pending[0].status, "pending");
+    }
+
+    #[tokio::test]
+    async fn get_pending_limit_five() {
+        let pool = test_pool().await;
+        for i in 0..6 {
+            let cid = 200 + i;
+            mark_comment_seen(&pool, cid, "apache/datafusion", 42, "alice", "2024-01-01")
+                .await
+                .unwrap();
+            insert_job(&pool, &test_job(cid)).await.unwrap();
+        }
+        let pending = get_pending_jobs(&pool).await.unwrap();
+        assert_eq!(pending.len(), 5);
+    }
+
+    // ── update_job_status + get_active_jobs ─────────────────────────
+
+    #[tokio::test]
+    async fn update_to_running_shows_active() {
+        let pool = test_pool().await;
+        mark_comment_seen(&pool, 300, "apache/datafusion", 42, "alice", "2024-01-01")
+            .await
+            .unwrap();
+        let id = insert_job(&pool, &test_job(300)).await.unwrap();
+
+        update_job_status(&pool, id, JobStatus::Running, Some("k8s-bench-1"), None)
+            .await
+            .unwrap();
+
+        let active = get_active_jobs(&pool).await.unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].k8s_job_name.as_deref(), Some("k8s-bench-1"));
+    }
+
+    #[tokio::test]
+    async fn completed_not_in_active() {
+        let pool = test_pool().await;
+        mark_comment_seen(&pool, 400, "apache/datafusion", 42, "alice", "2024-01-01")
+            .await
+            .unwrap();
+        let id = insert_job(&pool, &test_job(400)).await.unwrap();
+
+        update_job_status(&pool, id, JobStatus::Running, None, None)
+            .await
+            .unwrap();
+        update_job_status(&pool, id, JobStatus::Completed, None, None)
+            .await
+            .unwrap();
+
+        let active = get_active_jobs(&pool).await.unwrap();
+        assert!(active.is_empty());
+    }
+
+    // ── COALESCE behavior ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn coalesce_preserves_k8s_name() {
+        let pool = test_pool().await;
+        mark_comment_seen(&pool, 500, "apache/datafusion", 42, "alice", "2024-01-01")
+            .await
+            .unwrap();
+        let id = insert_job(&pool, &test_job(500)).await.unwrap();
+
+        update_job_status(&pool, id, JobStatus::Running, Some("my-job"), None)
+            .await
+            .unwrap();
+        // Update status with None k8s_job_name — should preserve "my-job"
+        update_job_status(&pool, id, JobStatus::Completed, None, None)
+            .await
+            .unwrap();
+
+        let jobs = sqlx::query_as::<_, BenchmarkJob>(
+            "SELECT * FROM benchmark_jobs WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(jobs.k8s_job_name.as_deref(), Some("my-job"));
+    }
+
+    // ── get_queue_summary ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn queue_summary_excludes_terminal() {
+        let pool = test_pool().await;
+
+        for i in 0..3 {
+            let cid = 600 + i;
+            mark_comment_seen(&pool, cid, "apache/datafusion", 42, "alice", "2024-01-01")
+                .await
+                .unwrap();
+            let id = insert_job(&pool, &test_job(cid)).await.unwrap();
+
+            match i {
+                1 => {
+                    update_job_status(&pool, id, JobStatus::Running, None, None)
+                        .await
+                        .unwrap();
+                }
+                2 => {
+                    update_job_status(&pool, id, JobStatus::Completed, None, None)
+                        .await
+                        .unwrap();
+                }
+                _ => {} // stays pending
+            }
+        }
+
+        let summary = get_queue_summary(&pool).await.unwrap();
+        // pending + running visible, completed excluded
+        assert_eq!(summary.len(), 2);
+    }
+
+    // ── set_last_scan + get_last_scan ───────────────────────────────
+
+    #[tokio::test]
+    async fn last_scan_lifecycle() {
+        let pool = test_pool().await;
+
+        assert!(get_last_scan(&pool, "apache/datafusion").await.unwrap().is_none());
+
+        set_last_scan(&pool, "apache/datafusion", "2024-01-01T00:00:00Z")
+            .await
+            .unwrap();
+        assert_eq!(
+            get_last_scan(&pool, "apache/datafusion").await.unwrap().as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+
+        // Upsert overwrites
+        set_last_scan(&pool, "apache/datafusion", "2024-06-01T00:00:00Z")
+            .await
+            .unwrap();
+        assert_eq!(
+            get_last_scan(&pool, "apache/datafusion").await.unwrap().as_deref(),
+            Some("2024-06-01T00:00:00Z")
+        );
+    }
+}
