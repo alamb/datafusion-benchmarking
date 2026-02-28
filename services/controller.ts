@@ -76,6 +76,16 @@ const controllerRoleBinding = new k8s.rbac.v1.RoleBinding("benchmark-controller"
   }],
 }, { provider: k8sProvider, dependsOn: [controllerRole, controllerKsa] });
 
+// StorageClass for benchmark runner workspace volumes
+const hyperdiskBalanced = new k8s.storage.v1.StorageClass("hyperdisk-balanced", {
+  metadata: { name: "hyperdisk-balanced" },
+  provisioner: "pd.csi.storage.gke.io",
+  parameters: { type: "hyperdisk-balanced" },
+  reclaimPolicy: "Delete",
+  volumeBindingMode: "WaitForFirstConsumer",
+  allowVolumeExpansion: true,
+}, { provider: k8sProvider });
+
 // Controller StatefulSet
 
 const imageTag = config.get("imageTag") || "latest";
