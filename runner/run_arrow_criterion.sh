@@ -12,14 +12,15 @@ BENCH_NAME=${BENCH_NAME:-"concatenate_kernel"}
 BENCH_FILTER=${BENCH_FILTER:-""}
 BENCH_COMMAND="cargo bench --features=arrow,async,test_common,experimental,object_store --bench ${BENCH_NAME}"
 
-WORK_DIR="/workspace/arrow-rs"
+BRANCH_DIR="/workspace/arrow-rs-branch"
+BASE_DIR="/workspace/arrow-rs-base"
 
 ######
 # Clone and checkout the PR branch
 ######
-echo "=== Cloning arrow-rs ==="
-git clone --depth=200 https://github.com/apache/arrow-rs.git "${WORK_DIR}"
-cd "${WORK_DIR}"
+echo "=== Cloning PR branch ==="
+git clone --depth=200 https://github.com/apache/arrow-rs.git "${BRANCH_DIR}"
+cd "${BRANCH_DIR}"
 git fetch origin
 gh pr checkout "${PR_URL}" --force
 git submodule update --init
@@ -27,6 +28,16 @@ MERGE_BASE=$(git merge-base HEAD origin/main)
 BRANCH_BASE=$(git rev-parse HEAD)
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_}
+cargo update
+
+######
+# Clone and checkout the merge-base
+######
+echo "=== Cloning merge-base ==="
+git clone --depth=200 https://github.com/apache/arrow-rs.git "${BASE_DIR}"
+cd "${BASE_DIR}"
+git checkout "${MERGE_BASE}"
+git submodule update --init
 cargo update
 
 ######
@@ -43,27 +54,42 @@ Results will be posted here when complete
 EOL
 gh pr comment "${PR_URL}" --body-file /tmp/comment.txt
 
-# Remove old criterion results
-rm -rf target/criterion/
+######
+# Compile both in parallel (--no-run compiles without executing)
+######
+echo "=== Compiling PR branch and merge-base in parallel ==="
+cd "${BRANCH_DIR}"
+${BENCH_COMMAND} --no-run >> /tmp/branch_build.log 2>&1 &
+BRANCH_PID=$!
+
+cd "${BASE_DIR}"
+${BENCH_COMMAND} --no-run >> /tmp/base_build.log 2>&1 &
+BASE_PID=$!
+
+wait ${BRANCH_PID}
+wait ${BASE_PID}
+echo "=== Compilation complete ==="
 
 ######
-# Run on PR branch
+# Run benchmarks sequentially to avoid interference
 ######
+echo "=== Running benchmark on merge-base ==="
+cd "${BASE_DIR}"
+${BENCH_COMMAND} -- --save-baseline main ${BENCH_FILTER}
+
 echo "=== Running benchmark on PR branch ==="
+cd "${BRANCH_DIR}"
 ${BENCH_COMMAND} -- --save-baseline "${BENCH_BRANCH_NAME}" ${BENCH_FILTER}
 
 ######
-# Run on merge-base
+# Copy baselines into one target dir for critcmp
 ######
-echo "=== Running benchmark on merge-base ==="
-git reset --hard
-git clean -f -d
-git checkout "${MERGE_BASE}"
-${BENCH_COMMAND} -- --save-baseline main ${BENCH_FILTER}
+cp -r "${BASE_DIR}/target/criterion/"* "${BRANCH_DIR}/target/criterion/" 2>/dev/null || true
 
 ######
 # Compare and post results
 ######
+cd "${BRANCH_DIR}"
 rm -f /tmp/report.txt
 critcmp main "${BENCH_BRANCH_NAME}" > /tmp/report.txt 2>&1
 
