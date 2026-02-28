@@ -1,0 +1,82 @@
+name: Build Container Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'controller/**'
+      - 'runner/**'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which image to build'
+        required: false
+        default: 'both'
+        type: choice
+        options: [both, controller, runner]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/benchmarking
+
+jobs:
+  build-controller:
+    if: >
+      github.event_name == 'push' ||
+      github.event.inputs.target == 'both' ||
+      github.event.inputs.target == 'controller'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build and push controller
+        run: |
+          docker build -t ${{ env.REGISTRY }}/controller:${{ github.sha }} controller/
+          docker tag ${{ env.REGISTRY }}/controller:${{ github.sha }} ${{ env.REGISTRY }}/controller:latest
+          docker push ${{ env.REGISTRY }}/controller:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/controller:latest
+
+      - name: Restart controller
+        run: |
+          gcloud container clusters get-credentials benchmark-cluster --region ${{ env.REGION }}
+          kubectl rollout restart statefulset/benchmark-controller -n benchmarking
+
+  build-runner:
+    if: >
+      github.event_name == 'push' ||
+      github.event.inputs.target == 'both' ||
+      github.event.inputs.target == 'runner'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build and push runner
+        run: |
+          docker build -t ${{ env.REGISTRY }}/runner:${{ github.sha }} runner/
+          docker tag ${{ env.REGISTRY }}/runner:${{ github.sha }} ${{ env.REGISTRY }}/runner:latest
+          docker push ${{ env.REGISTRY }}/runner:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/runner:latest

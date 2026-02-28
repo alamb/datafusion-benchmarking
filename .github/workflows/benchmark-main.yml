@@ -1,0 +1,104 @@
+name: Benchmark DataFusion Main
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      benchmarks:
+        description: 'Benchmarks to run (space-separated)'
+        required: false
+        default: 'clickbench_1'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/benchmarking
+
+jobs:
+  trigger-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install gke-gcloud-auth-plugin
+        run: gcloud components install gke-gcloud-auth-plugin
+
+      - name: Get cluster credentials
+        run: gcloud container clusters get-credentials benchmark-cluster --region ${{ env.REGION }}
+
+      - name: Create benchmark job
+        run: |
+          BENCHMARKS="${{ github.event.inputs.benchmarks || 'clickbench_1' }}"
+          JOB_NAME="bench-main-$(date +%s)"
+
+          cat <<EOF | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB_NAME}
+            namespace: benchmarking
+          spec:
+            backoffLimit: 0
+            activeDeadlineSeconds: 7200
+            ttlSecondsAfterFinished: 3600
+            template:
+              spec:
+                restartPolicy: Never
+                nodeSelector:
+                  cloud.google.com/compute-class: Performance
+                tolerations:
+                  - key: cloud.google.com/gke-spot
+                    operator: Exists
+                    effect: NoSchedule
+                containers:
+                  - name: runner
+                    image: ${{ env.REGISTRY }}/runner:latest
+                    env:
+                      - name: BENCH_TYPE
+                        value: main_tracking
+                      - name: PR_URL
+                        value: "https://github.com/apache/datafusion"
+                      - name: BENCHMARKS
+                        value: "${BENCHMARKS}"
+                      - name: REPO
+                        value: apache/datafusion
+                      - name: GITHUB_TOKEN
+                        valueFrom:
+                          secretKeyRef:
+                            name: github-token
+                            key: token
+                    resources:
+                      requests:
+                        cpu: "30"
+                        memory: "60Gi"
+                        ephemeral-storage: "100Gi"
+                    volumeMounts:
+                      - name: workspace
+                        mountPath: /workspace
+                volumes:
+                  - name: workspace
+                    ephemeral:
+                      volumeClaimTemplate:
+                        spec:
+                          storageClassName: hyperdisk-balanced
+                          accessModes: ["ReadWriteOnce"]
+                          resources:
+                            requests:
+                              storage: 100Gi
+          EOF
+
+          echo "Created job: ${JOB_NAME}"
+
+      - name: Wait for job to start
+        run: |
+          kubectl wait --for=condition=complete --timeout=10s job -l app=benchmark-runner -n benchmarking 2>/dev/null || true
+          echo "Job submitted. Results will be posted when complete."

@@ -1,16 +1,24 @@
-.idea/
+# Legacy
 scripts/jobs
-tmp
 data
-datafusion
-datafusion1
-datafusion2
-datafusion3
-datafusion4
-datafusion5
-datafusion6
-datafusion7
-datafusion8
-datafusion9
-datafusion10
 builds
+tmp
+
+# Rust
+controller/target/
+
+# Node / Pulumi
+infra/node_modules/
+infra/bin/
+infra/package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store

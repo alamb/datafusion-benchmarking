@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  controller-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --check --manifest-path controller/Cargo.toml
+
+      - name: Clippy
+        run: cargo clippy --manifest-path controller/Cargo.toml -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path controller/Cargo.toml
+
+  infra-preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: infra
+        run: npm ci
+
+      - uses: pulumi/auth@v1
+        with:
+          organization: ${{ vars.PULUMI_ORG }}
+
+      - uses: pulumi/actions@v5
+        with:
+          command: preview
+          stack-name: dev
+          work-dir: infra

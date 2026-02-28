@@ -1,0 +1,353 @@
+use std::collections::BTreeMap;
+
+use anyhow::Result;
+use k8s_openapi::api::batch::v1::{Job, JobSpec};
+use k8s_openapi::api::core::v1::{
+    Container, EnvVar, EnvVarSource, EphemeralVolumeSource, PersistentVolumeClaimTemplate,
+    PodSpec, PodTemplateSpec, ResourceRequirements, SecretKeySelector, Toleration, Volume,
+    VolumeMount,
+};
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use kube::api::{Api, PostParams};
+use kube::Client as KubeClient;
+use sqlx::SqlitePool;
+use tracing::{info, warn};
+
+use crate::config::Config;
+use crate::db;
+use crate::github::GitHubClient;
+use crate::models::BenchmarkJob;
+
+pub async fn reconcile_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
+    let interval = tokio::time::Duration::from_secs(config.reconcile_interval_secs);
+
+    let kube_client = match KubeClient::try_default().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to create kube client");
+            return;
+        }
+    };
+
+    loop {
+        if let Err(e) = reconcile_pending(&config, &pool, &gh, &kube_client).await {
+            warn!(error = %e, "reconcile pending error");
+        }
+        if let Err(e) = reconcile_active(&config, &pool, &gh, &kube_client).await {
+            warn!(error = %e, "reconcile active error");
+        }
+        tokio::time::sleep(interval).await;
+    }
+}
+
+async fn reconcile_pending(
+    config: &Config,
+    pool: &SqlitePool,
+    gh: &GitHubClient,
+    kube: &KubeClient,
+) -> Result<()> {
+    let pending = db::get_pending_jobs(pool).await?;
+    let jobs_api: Api<Job> = Api::namespaced(kube.clone(), &config.k8s_namespace);
+
+    for job in pending {
+        match create_k8s_job(config, &jobs_api, &job).await {
+            Ok(k8s_name) => {
+                info!(job_id = job.id, k8s_name = %k8s_name, "created k8s job");
+                db::update_job_status(pool, job.id, "running", Some(&k8s_name), None).await?;
+
+                // Post "running" comment
+                let msg = format!(
+                    "Benchmark job started for PR #{} (job {}). \
+                     Results will be posted here when complete.",
+                    job.pr_number, k8s_name
+                );
+                if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
+                    warn!(error = %e, "failed to post running comment");
+                }
+            }
+            Err(e) => {
+                warn!(job_id = job.id, error = %e, "failed to create k8s job");
+                db::update_job_status(
+                    pool,
+                    job.id,
+                    "failed",
+                    None,
+                    Some(&format!("Failed to create K8s Job: {e}")),
+                )
+                .await?;
+
+                let msg = format!(
+                    "Failed to start benchmark for PR #{}: {e}",
+                    job.pr_number
+                );
+                if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
+                    warn!(error = %e, "failed to post error comment");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn reconcile_active(
+    config: &Config,
+    pool: &SqlitePool,
+    gh: &GitHubClient,
+    kube: &KubeClient,
+) -> Result<()> {
+    let active = db::get_active_jobs(pool).await?;
+    let jobs_api: Api<Job> = Api::namespaced(kube.clone(), &config.k8s_namespace);
+
+    for job in active {
+        let k8s_name = match &job.k8s_job_name {
+            Some(n) => n.clone(),
+            None => continue,
+        };
+
+        match jobs_api.get(&k8s_name).await {
+            Ok(k8s_job) => {
+                let status = k8s_job.status.as_ref();
+                let succeeded = status.and_then(|s| s.succeeded).unwrap_or(0);
+                let failed = status.and_then(|s| s.failed).unwrap_or(0);
+
+                if succeeded > 0 {
+                    info!(job_id = job.id, "job completed successfully");
+                    db::update_job_status(pool, job.id, "completed", None, None).await?;
+                } else if failed > 0 {
+                    info!(job_id = job.id, "job failed");
+                    let error_msg = read_pod_error(kube, config, &k8s_name).await;
+                    db::update_job_status(
+                        pool,
+                        job.id,
+                        "failed",
+                        None,
+                        Some(&error_msg),
+                    )
+                    .await?;
+
+                    let msg = format!(
+                        "Benchmark job `{k8s_name}` failed for PR #{}.\n\n\
+                         <details><summary>Error details</summary>\n\n\
+                         ```\n{error_msg}\n```\n\n</details>",
+                        job.pr_number
+                    );
+                    if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
+                        warn!(error = %e, "failed to post failure comment");
+                    }
+                }
+            }
+            Err(kube::Error::Api(ae)) if ae.code == 404 => {
+                warn!(job_id = job.id, k8s_name, "k8s job not found, marking failed");
+                db::update_job_status(pool, job.id, "failed", None, Some("K8s Job not found"))
+                    .await?;
+            }
+            Err(e) => {
+                warn!(job_id = job.id, error = %e, "error checking k8s job");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn read_pod_error(kube: &KubeClient, config: &Config, job_name: &str) -> String {
+    use k8s_openapi::api::core::v1::Pod;
+    let pods_api: Api<Pod> = Api::namespaced(kube.clone(), &config.k8s_namespace);
+
+    let label = format!("job-name={job_name}");
+    match pods_api
+        .list(&kube::api::ListParams::default().labels(&label))
+        .await
+    {
+        Ok(list) => {
+            if let Some(pod) = list.items.first() {
+                let pod_name = pod.metadata.name.as_deref().unwrap_or("unknown");
+                match pods_api
+                    .logs(pod_name, &kube::api::LogParams { tail_lines: Some(50), ..Default::default() })
+                    .await
+                {
+                    Ok(logs) => return logs,
+                    Err(e) => return format!("Failed to read pod logs: {e}"),
+                }
+            }
+            "No pods found for job".to_string()
+        }
+        Err(e) => format!("Failed to list pods: {e}"),
+    }
+}
+
+async fn create_k8s_job(
+    config: &Config,
+    jobs_api: &Api<Job>,
+    job: &BenchmarkJob,
+) -> Result<String> {
+    let benchmarks: Vec<String> = serde_json::from_str(&job.benchmarks)?;
+    let env_vars: Vec<String> = serde_json::from_str(&job.env_vars)?;
+
+    let job_name = format!("bench-{}-{:x}", job.id, job.comment_id.unsigned_abs() % 0xFFFF);
+
+    let cpu = job
+        .cpu_request
+        .as_deref()
+        .unwrap_or(&config.default_cpu);
+    let memory = job
+        .memory_request
+        .as_deref()
+        .unwrap_or(&config.default_memory);
+
+    let mut env = vec![
+        EnvVar {
+            name: "PR_URL".into(),
+            value: Some(job.pr_url.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "BENCHMARKS".into(),
+            value: Some(benchmarks.join(" ")),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "BENCH_TYPE".into(),
+            value: Some(job.job_type.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "REPO".into(),
+            value: Some(job.repo.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "GITHUB_TOKEN".into(),
+            value_from: Some(EnvVarSource {
+                secret_key_ref: Some(SecretKeySelector {
+                    name: Some("github-token".into()),
+                    key: "token".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    ];
+
+    // Add user-specified env vars
+    for ev in &env_vars {
+        if let Some((k, v)) = ev.split_once('=') {
+            env.push(EnvVar {
+                name: k.to_string(),
+                value: Some(v.to_string()),
+                ..Default::default()
+            });
+        }
+    }
+
+    // For criterion benchmarks, set BENCH_NAME to the first benchmark
+    if (job.job_type == "criterion" || job.job_type == "arrow_criterion") && !benchmarks.is_empty()
+    {
+        env.push(EnvVar {
+            name: "BENCH_NAME".into(),
+            value: Some(benchmarks[0].clone()),
+            ..Default::default()
+        });
+    }
+
+    let mut resource_requests = BTreeMap::new();
+    resource_requests.insert("cpu".to_string(), Quantity(cpu.to_string()));
+    resource_requests.insert("memory".to_string(), Quantity(memory.to_string()));
+    resource_requests.insert(
+        "ephemeral-storage".to_string(),
+        Quantity("100Gi".to_string()),
+    );
+
+    let mut node_selector = BTreeMap::new();
+    node_selector.insert(
+        "cloud.google.com/compute-class".to_string(),
+        "Performance".to_string(),
+    );
+
+    if let Some(arch) = &job.cpu_arch {
+        node_selector.insert("kubernetes.io/arch".to_string(), arch.clone());
+    }
+
+    let k8s_job = Job {
+        metadata: ObjectMeta {
+            name: Some(job_name.clone()),
+            namespace: Some(config.k8s_namespace.clone()),
+            ..Default::default()
+        },
+        spec: Some(JobSpec {
+            backoff_limit: Some(0),
+            active_deadline_seconds: Some(7200),
+            ttl_seconds_after_finished: Some(3600),
+            template: PodTemplateSpec {
+                metadata: Some(ObjectMeta {
+                    labels: Some({
+                        let mut l = BTreeMap::new();
+                        l.insert("app".to_string(), "benchmark-runner".to_string());
+                        l.insert("job-id".to_string(), job.id.to_string());
+                        l
+                    }),
+                    ..Default::default()
+                }),
+                spec: Some(PodSpec {
+                    restart_policy: Some("Never".into()),
+                    node_selector: Some(node_selector),
+                    tolerations: Some(vec![Toleration {
+                        key: Some("cloud.google.com/gke-spot".into()),
+                        operator: Some("Exists".into()),
+                        effect: Some("NoSchedule".into()),
+                        ..Default::default()
+                    }]),
+                    containers: vec![Container {
+                        name: "runner".into(),
+                        image: Some(config.runner_image.clone()),
+                        env: Some(env),
+                        resources: Some(ResourceRequirements {
+                            requests: Some(resource_requests),
+                            ..Default::default()
+                        }),
+                        volume_mounts: Some(vec![VolumeMount {
+                            name: "workspace".into(),
+                            mount_path: "/workspace".into(),
+                            ..Default::default()
+                        }]),
+                        ..Default::default()
+                    }],
+                    volumes: Some(vec![Volume {
+                        name: "workspace".into(),
+                        ephemeral: Some(EphemeralVolumeSource {
+                            volume_claim_template: Some(PersistentVolumeClaimTemplate {
+                                metadata: Some(ObjectMeta::default()),
+                                spec: k8s_openapi::api::core::v1::PersistentVolumeClaimSpec {
+                                    access_modes: Some(vec!["ReadWriteOnce".into()]),
+                                    storage_class_name: Some("hyperdisk-balanced".into()),
+                                    resources: Some(k8s_openapi::api::core::v1::VolumeResourceRequirements {
+                                        requests: Some({
+                                            let mut m = BTreeMap::new();
+                                            m.insert(
+                                                "storage".to_string(),
+                                                Quantity("100Gi".to_string()),
+                                            );
+                                            m
+                                        }),
+                                        ..Default::default()
+                                    }),
+                                    ..Default::default()
+                                },
+                            }),
+                        }),
+                        ..Default::default()
+                    }]),
+                    ..Default::default()
+                }),
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    jobs_api.create(&PostParams::default(), &k8s_job).await?;
+    Ok(job_name)
+}
