@@ -4,5 +4,7 @@ description: GKE Autopilot infrastructure for DataFusion benchmarking
 config:
   gcp:project:
     description: GCP project ID
+    value: datafusion-benchmarking
   gcp:region:
     default: us-central1
+    value: us-central1
