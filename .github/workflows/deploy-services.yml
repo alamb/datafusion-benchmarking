@@ -46,6 +46,7 @@ jobs:
           pulumi stack select --create ${{ vars.PULUMI_ORG }}/dev
           pulumi config set gcp:project ${{ vars.GCP_PROJECT_ID }}
           pulumi config set gcp:region ${{ vars.GCP_REGION }}
+          pulumi config set --secret githubToken '${{ secrets.GH_CONTROLLER_TOKEN }}'
 
       - uses: pulumi/actions@v5
         with:

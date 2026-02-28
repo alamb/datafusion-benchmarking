@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 /// GITHUB_TOKEN              —                                    yes
 /// RUNNER_IMAGE              —                                    yes
 /// DATABASE_URL              sqlite:///data/benchmark.db           no
-/// WATCHED_REPOS             apache/datafusion:apache/arrow-rs     no
+/// WATCHED_REPOS             pydantic/datafusion                   no
 /// POLL_INTERVAL_SECS        30                                    no
 /// RECONCILE_INTERVAL_SECS   10                                    no
 /// K8S_NAMESPACE             benchmarking                          no
@@ -48,7 +48,7 @@ impl Config {
         Ok(Self {
             github_token: env_required("GITHUB_TOKEN")?,
             database_url: env_or("DATABASE_URL", "sqlite:///data/benchmark.db"),
-            watched_repos: env_or("WATCHED_REPOS", "apache/datafusion:apache/arrow-rs")
+            watched_repos: env_or("WATCHED_REPOS", "pydantic/datafusion")
                 .split(':')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
