@@ -144,25 +144,33 @@ pub async fn set_last_scan(pool: &SqlitePool, repo: &str, timestamp: &str) -> Re
     Ok(())
 }
 
-/// Number of days to retain old seen comments and terminal jobs.
-const RETENTION_DAYS: i64 = 30;
+/// Number of days to retain old benchmark jobs.
+const JOB_RETENTION_DAYS: i64 = 30;
 
-/// Delete seen comments older than `retention_days`. Returns the number of rows removed.
-pub async fn cleanup_seen_comments(pool: &SqlitePool, retention_days: i64) -> Result<u64> {
+/// Delete seen comments that are older than the oldest `last_scan_at` in
+/// `scan_state` minus one poll interval. These rows can never be re-fetched
+/// by the poller, so they no longer serve a dedup purpose.
+/// Returns the number of rows removed.
+pub async fn cleanup_seen_comments(pool: &SqlitePool, poll_interval_secs: u64) -> Result<u64> {
     let result = sqlx::query(
-        "DELETE FROM seen_comments WHERE processed_at < datetime('now', '-' || ? || ' days')",
+        "DELETE FROM seen_comments \
+         WHERE processed_at < datetime(\
+             (SELECT MIN(last_scan_at) FROM scan_state), \
+             '-' || ? || ' seconds')",
     )
-    .bind(retention_days)
+    .bind(poll_interval_secs as i64)
     .execute(pool)
     .await?;
     Ok(result.rows_affected())
 }
 
-/// Delete terminal (`completed`/`failed`) jobs older than `retention_days`. Returns the number of rows removed.
+/// Delete jobs older than `retention_days` regardless of status.
+/// A job still pending or running after 30 days is stale.
+/// Returns the number of rows removed.
 pub async fn cleanup_old_jobs(pool: &SqlitePool, retention_days: i64) -> Result<u64> {
     let result = sqlx::query(
-        "DELETE FROM benchmark_jobs WHERE status IN ('completed', 'failed') \
-         AND updated_at < datetime('now', '-' || ? || ' days')",
+        "DELETE FROM benchmark_jobs \
+         WHERE updated_at < datetime('now', '-' || ? || ' days')",
     )
     .bind(retention_days)
     .execute(pool)
@@ -170,10 +178,10 @@ pub async fn cleanup_old_jobs(pool: &SqlitePool, retention_days: i64) -> Result<
     Ok(result.rows_affected())
 }
 
-/// Run all cleanup tasks with the default retention period. Returns (comments_deleted, jobs_deleted).
-pub async fn run_cleanup(pool: &SqlitePool) -> Result<(u64, u64)> {
-    let comments = cleanup_seen_comments(pool, RETENTION_DAYS).await?;
-    let jobs = cleanup_old_jobs(pool, RETENTION_DAYS).await?;
+/// Run all cleanup tasks with default parameters. Returns (comments_deleted, jobs_deleted).
+pub async fn run_cleanup(pool: &SqlitePool, poll_interval_secs: u64) -> Result<(u64, u64)> {
+    let comments = cleanup_seen_comments(pool, poll_interval_secs).await?;
+    let jobs = cleanup_old_jobs(pool, JOB_RETENTION_DAYS).await?;
     Ok((comments, jobs))
 }
 
@@ -366,22 +374,32 @@ mod tests {
     #[tokio::test]
     async fn cleanup_seen_comments_deletes_old_keeps_recent() {
         let pool = test_pool().await;
+        let poll_interval: u64 = 5;
 
-        // Insert a comment, then backdate its processed_at to 60 days ago
+        // Set scan_state so the cleanup has a reference point
+        set_last_scan(&pool, "apache/datafusion", "2024-06-15T00:00:00Z")
+            .await
+            .unwrap();
+
+        // Insert a comment well before last_scan_at
         mark_comment_seen(&pool, 700, "apache/datafusion", 42, "alice", "2024-01-01")
             .await
             .unwrap();
-        sqlx::query("UPDATE seen_comments SET processed_at = datetime('now', '-60 days') WHERE comment_id = 700")
+        sqlx::query("UPDATE seen_comments SET processed_at = '2024-01-01T00:00:00Z' WHERE comment_id = 700")
             .execute(&pool)
             .await
             .unwrap();
 
-        // Insert a recent comment
+        // Insert a recent comment (after last_scan_at)
         mark_comment_seen(&pool, 701, "apache/datafusion", 43, "bob", "2024-06-01")
             .await
             .unwrap();
+        sqlx::query("UPDATE seen_comments SET processed_at = '2024-06-15T00:00:00Z' WHERE comment_id = 701")
+            .execute(&pool)
+            .await
+            .unwrap();
 
-        let deleted = cleanup_seen_comments(&pool, 30).await.unwrap();
+        let deleted = cleanup_seen_comments(&pool, poll_interval).await.unwrap();
         assert_eq!(deleted, 1);
 
         // Recent one still exists
@@ -390,65 +408,76 @@ mod tests {
         assert!(!is_comment_seen(&pool, 700).await.unwrap());
     }
 
+    #[tokio::test]
+    async fn cleanup_seen_comments_noop_without_scan_state() {
+        let pool = test_pool().await;
+
+        // Insert a comment with no scan_state rows — cleanup should delete nothing
+        mark_comment_seen(&pool, 710, "apache/datafusion", 42, "alice", "2024-01-01")
+            .await
+            .unwrap();
+        sqlx::query("UPDATE seen_comments SET processed_at = '2020-01-01T00:00:00Z' WHERE comment_id = 710")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let deleted = cleanup_seen_comments(&pool, 5).await.unwrap();
+        assert_eq!(deleted, 0);
+    }
+
     // ── cleanup_old_jobs ────────────────────────────────────────
 
     #[tokio::test]
-    async fn cleanup_old_jobs_deletes_terminal_keeps_active() {
+    async fn cleanup_old_jobs_deletes_all_old_keeps_recent() {
         let pool = test_pool().await;
 
-        // Create three jobs: completed (old), failed (old), pending (old)
-        let statuses = ["completed", "failed", "pending"];
-        for (i, status_str) in statuses.iter().enumerate() {
+        // Create four old jobs: completed, failed, pending, running — all 60 days old
+        for (i, status) in [
+            JobStatus::Completed,
+            JobStatus::Failed,
+            JobStatus::Pending,
+            JobStatus::Running,
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let cid = 800 + i as i64;
             mark_comment_seen(&pool, cid, "apache/datafusion", 42, "alice", "2024-01-01")
                 .await
                 .unwrap();
             let id = insert_job(&pool, &test_job(cid)).await.unwrap();
-            match *status_str {
-                "completed" => {
-                    update_job_status(&pool, id, JobStatus::Completed, None, None)
-                        .await
-                        .unwrap();
-                }
-                "failed" => {
-                    update_job_status(&pool, id, JobStatus::Failed, None, None)
-                        .await
-                        .unwrap();
-                }
-                _ => {} // stays pending
+            // Pending is the default, only update for others
+            if !matches!(status, JobStatus::Pending) {
+                update_job_status(&pool, id, status, None, None)
+                    .await
+                    .unwrap();
             }
-            // Backdate updated_at to 60 days ago
-            sqlx::query("UPDATE benchmark_jobs SET updated_at = datetime('now', '-60 days') WHERE id = ?")
-                .bind(id)
-                .execute(&pool)
-                .await
-                .unwrap();
-        }
-
-        // Also create an old running job
-        mark_comment_seen(&pool, 803, "apache/datafusion", 42, "alice", "2024-01-01")
-            .await
-            .unwrap();
-        let running_id = insert_job(&pool, &test_job(803)).await.unwrap();
-        update_job_status(&pool, running_id, JobStatus::Running, None, None)
-            .await
-            .unwrap();
-        sqlx::query("UPDATE benchmark_jobs SET updated_at = datetime('now', '-60 days') WHERE id = ?")
-            .bind(running_id)
+            // Backdate to 60 days ago
+            sqlx::query(
+                "UPDATE benchmark_jobs SET updated_at = datetime('now', '-60 days') WHERE id = ?",
+            )
+            .bind(id)
             .execute(&pool)
             .await
             .unwrap();
+        }
+
+        // Create one recent job (stays at default updated_at = now)
+        mark_comment_seen(&pool, 810, "apache/datafusion", 42, "alice", "2024-01-01")
+            .await
+            .unwrap();
+        insert_job(&pool, &test_job(810)).await.unwrap();
 
         let deleted = cleanup_old_jobs(&pool, 30).await.unwrap();
-        // Only completed and failed should be deleted
-        assert_eq!(deleted, 2);
+        // All four old jobs deleted regardless of status
+        assert_eq!(deleted, 4);
 
-        // Pending and running jobs should still exist
+        // Only the recent one remains
         let remaining = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM benchmark_jobs")
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(remaining, 2);
+        assert_eq!(remaining, 1);
     }
 
     // ── set_last_scan + get_last_scan ───────────────────────────

@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 /// RUNNER_IMAGE              —                                    yes
 /// DATABASE_URL              sqlite:///data/benchmark.db           no
 /// WATCHED_REPOS             pydantic/datafusion                   no
-/// POLL_INTERVAL_SECS        30                                    no
+/// POLL_INTERVAL_SECS        5                                     no
 /// RECONCILE_INTERVAL_SECS   10                                    no
 /// K8S_NAMESPACE             benchmarking                          no
 /// DEFAULT_CPU               30                                    no
@@ -53,7 +53,7 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
-            poll_interval_secs: env_or("POLL_INTERVAL_SECS", "30")
+            poll_interval_secs: env_or("POLL_INTERVAL_SECS", "5")
                 .parse()
                 .context("POLL_INTERVAL_SECS")?,
             reconcile_interval_secs: env_or("RECONCILE_INTERVAL_SECS", "10")

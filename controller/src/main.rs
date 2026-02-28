@@ -59,6 +59,7 @@ async fn main() -> Result<()> {
     let cleanup = tokio::spawn({
         let pool = pool.clone();
         let token = token.clone();
+        let poll_interval_secs = config.poll_interval_secs;
         async move {
             let interval = tokio::time::Duration::from_secs(3600);
             loop {
@@ -69,7 +70,7 @@ async fn main() -> Result<()> {
                         break;
                     }
                 }
-                match db::run_cleanup(&pool).await {
+                match db::run_cleanup(&pool, poll_interval_secs).await {
                     Ok((comments, jobs)) => {
                         if comments > 0 || jobs > 0 {
                             info!(comments, jobs, "cleanup: deleted old rows");
