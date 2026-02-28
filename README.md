@@ -97,23 +97,28 @@ show benchmark queue
 
 ## Project Structure
 
+Monorepo with npm workspaces (TypeScript) and a Cargo workspace (Rust).
+
 ```
-.github/workflows/     GitHub Actions (deploy, build, CI, scheduled benchmarks)
-infra/                 Pulumi TypeScript (GKE Autopilot, Artifact Registry, IAM)
-controller/            Rust controller crate
+package.json               Root npm workspace (infra + services)
+Cargo.toml                 Root Cargo workspace (controller)
+.github/workflows/         GitHub Actions (deploy, build, CI, scheduled benchmarks)
+infra/                     Pulumi stack: GCP resources (GKE, Artifact Registry, IAM)
+services/                  Pulumi stack: K8s deployments (controller StatefulSet)
+controller/                Rust controller crate
   src/
-    main.rs            Entry point — spawns poller + reconciler
-    config.rs          Environment-based configuration
-    models.rs          SQLite row types, GitHub API types
-    github.rs          GitHub REST API client
-    github_poller.rs   Comment polling loop
-    job_manager.rs     K8s Job lifecycle reconciler
-    db.rs              SQLite queries (jobs, seen comments, scan state)
-    benchmarks.rs      Trigger parsing, benchmark allowlists
-  migrations/          SQLite schema
-runner/                Benchmark runner container (builds project, runs benchmarks, posts results)
-queries/               SQL query files for ClickBench
-scripts/               Legacy benchmark scripts (reference)
+    main.rs                Entry point — spawns poller + reconciler
+    config.rs              Environment-based configuration
+    models.rs              SQLite row types, GitHub API types
+    github.rs              GitHub REST API client
+    github_poller.rs       Comment polling loop
+    job_manager.rs         K8s Job lifecycle reconciler
+    db.rs                  SQLite queries (jobs, seen comments, scan state)
+    benchmarks.rs          Trigger parsing, benchmark allowlists
+  migrations/              SQLite schema
+runner/                    Benchmark runner container (builds project, runs benchmarks, posts results)
+queries/                   SQL query files for ClickBench
+scripts/                   Legacy benchmark scripts (reference)
 ```
 
 ## Building
@@ -154,13 +159,18 @@ Note: the reconciler requires in-cluster K8s access. Outside a cluster it will f
 
 ## Infrastructure
 
-Managed with [Pulumi](https://www.pulumi.com/) (TypeScript):
+Managed with [Pulumi](https://www.pulumi.com/) (TypeScript), split into two stacks connected via StackReference:
+
+- **`infra`** — GCP resources: GKE Autopilot cluster, Artifact Registry, IAM (controller SA + WI binding)
+- **`services`** — K8s resources: namespace, service account, secrets, controller StatefulSet
 
 ```bash
-cd infra && npm install
-pulumi preview   # dry-run
-pulumi up        # apply
+npm install          # install all workspace deps from root
+cd infra && pulumi preview    # dry-run infra
+cd services && pulumi preview # dry-run services
 ```
+
+The dependency chain is: `infra (pulumi up)` → `build images (docker push)` → `services (pulumi up)`.
 
 Key resources:
 - **GKE Autopilot** cluster with Performance-class spot instances
@@ -170,7 +180,12 @@ Key resources:
 
 ### Bootstrapping
 
-The OIDC auth was boostrapped manually via gcloud commands (see `infra/bootstrap_oidc.sh`).
+One-time setup for GitHub Actions → GCP authentication:
+
+1. Run `infra/bootstrap.sh` (creates WIF pool, OIDC provider, gha-deployer SA via gcloud)
+2. Set the 3 GitHub repo variables printed by the script (`GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT_EMAIL`)
+3. `gcloud auth application-default login && cd infra && pulumi up --stack dev`
+4. Push to main — GHA takes over from there
 
 ## Design
 

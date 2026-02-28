@@ -1,13 +1,17 @@
 FROM rust:1-bookworm AS builder
 
 WORKDIR /build
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo 'fn main() {}' > src/main.rs
-RUN cargo build --release
 
-COPY src/ src/
-COPY migrations/ migrations/
-RUN touch src/main.rs && cargo build --release
+# Copy workspace root manifests for dependency caching
+COPY Cargo.toml Cargo.lock ./
+COPY controller/Cargo.toml controller/Cargo.toml
+RUN mkdir -p controller/src && echo 'fn main() {}' > controller/src/main.rs
+RUN cargo build --release -p benchmark-controller
+
+# Copy real source and rebuild
+COPY controller/src/ controller/src/
+COPY controller/migrations/ controller/migrations/
+RUN touch controller/src/main.rs && cargo build --release -p benchmark-controller
 
 FROM debian:bookworm-slim
 

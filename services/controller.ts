@@ -1,39 +1,8 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import * as gcp from "@pulumi/gcp";
-import { cluster, clusterEndpoint, clusterName, clusterLocation } from "./cluster";
-import { controllerServiceAccountEmail } from "./identity";
-import { registryUrl } from "./registry";
+import { k8sProvider, registryUrl, controllerSaEmail } from "./provider";
 
 const config = new pulumi.Config();
-const project = gcp.config.project!;
-const gcpConfig = new pulumi.Config("gcp");
-const region = gcpConfig.require("region");
-
-// K8s provider configured against the GKE cluster
-const k8sProvider = new k8s.Provider("gke", {
-  kubeconfig: pulumi.interpolate`apiVersion: v1
-clusters:
-- cluster:
-    certificate-authority-data: ${cluster.masterAuth.clusterCaCertificate}
-    server: https://${clusterEndpoint}
-  name: ${clusterName}
-contexts:
-- context:
-    cluster: ${clusterName}
-    user: ${clusterName}
-  name: ${clusterName}
-current-context: ${clusterName}
-kind: Config
-users:
-- name: ${clusterName}
-  user:
-    exec:
-      apiVersion: client.authentication.k8s.io/v1beta1
-      command: gke-gcloud-auth-plugin
-      installHint: Install gke-gcloud-auth-plugin for kubectl
-      provideClusterInfo: true`,
-});
 
 // Namespace
 const ns = new k8s.core.v1.Namespace("benchmarking", {
@@ -46,7 +15,7 @@ const controllerKsa = new k8s.core.v1.ServiceAccount("benchmark-controller", {
     name: "benchmark-controller",
     namespace: "benchmarking",
     annotations: {
-      "iam.gke.io/gcp-service-account": controllerServiceAccountEmail,
+      "iam.gke.io/gcp-service-account": controllerSaEmail,
     },
   },
 }, { provider: k8sProvider, dependsOn: [ns] });
@@ -107,7 +76,6 @@ export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-cont
             mountPath: "/data",
           }],
         }],
-        // Run on default (non-Performance) compute class, non-spot
         nodeSelector: {
           "kubernetes.io/os": "linux",
         },

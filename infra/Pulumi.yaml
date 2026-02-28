@@ -1,4 +1,4 @@
-name: datafusion-benchmarking
+name: datafusion-infra
 runtime: nodejs
 description: GKE Autopilot infrastructure for DataFusion benchmarking
 config:

@@ -1,0 +1,3 @@
+name: datafusion-services
+runtime: nodejs
+description: K8s deployments for DataFusion benchmarking

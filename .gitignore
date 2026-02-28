@@ -5,11 +5,12 @@ builds
 tmp
 
 # Rust
-controller/target/
+target/
 
 # Node / Pulumi
-infra/node_modules/
+node_modules/
 infra/bin/
+services/bin/
 
 # Python
 __pycache__/

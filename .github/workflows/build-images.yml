@@ -6,6 +6,8 @@ on:
     paths:
       - 'controller/**'
       - 'runner/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   workflow_dispatch:
     inputs:
       target:
@@ -53,7 +55,8 @@ jobs:
       - name: Build and push controller
         uses: docker/build-push-action@v6
         with:
-          context: controller/
+          context: .
+          file: controller/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/controller:${{ github.sha }}

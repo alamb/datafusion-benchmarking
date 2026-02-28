@@ -1,9 +1,9 @@
-name: Deploy Infrastructure
+name: Deploy Services
 
 on:
   push:
     branches: [main]
-    paths: ['infra/**']
+    paths: ['services/**']
   workflow_dispatch: {}
 
 permissions:
@@ -43,4 +43,4 @@ jobs:
         with:
           command: up
           stack-name: dev
-          work-dir: infra
+          work-dir: services

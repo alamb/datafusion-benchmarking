@@ -1,12 +1,12 @@
 {
-  "name": "datafusion-benchmarking-infra",
+  "name": "datafusion-services",
   "main": "index.ts",
   "devDependencies": {
     "@types/node": "^20",
     "typescript": "^5"
   },
   "dependencies": {
-    "@pulumi/gcp": "^8",
+    "@pulumi/kubernetes": "^4",
     "@pulumi/pulumi": "^3"
   },
   "overrides": {
