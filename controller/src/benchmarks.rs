@@ -128,7 +128,7 @@ impl RepoConfig {
     /// Factory: returns the benchmark config for a known repo, or `None`.
     pub fn for_repo(repo: &str) -> Option<Self> {
         match repo {
-            "apache/datafusion" | "pydantic/datafusion" => Some(Self {
+            "apache/datafusion" | "pydantic/datafusion" | "adriangb/datafusion" => Some(Self {
                 repo: repo.to_string(),
                 allowed_standard: &ALLOWED_BENCHMARKS_DF,
                 allowed_criterion: &ALLOWED_CRITERION_BENCHMARKS_DF,
