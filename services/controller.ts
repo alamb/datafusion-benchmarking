@@ -46,6 +46,36 @@ const logfireSecret = logfireToken ? new k8s.core.v1.Secret("logfire-token", {
   },
 }, { provider: k8sProvider, dependsOn: [ns] }) : undefined;
 
+// RBAC — allow the controller SA to manage batch Jobs in its namespace
+const controllerRole = new k8s.rbac.v1.Role("benchmark-controller", {
+  metadata: {
+    name: "benchmark-controller",
+    namespace: "benchmarking",
+  },
+  rules: [{
+    apiGroups: ["batch"],
+    resources: ["jobs"],
+    verbs: ["create", "get", "list", "delete"],
+  }],
+}, { provider: k8sProvider, dependsOn: [ns] });
+
+const controllerRoleBinding = new k8s.rbac.v1.RoleBinding("benchmark-controller", {
+  metadata: {
+    name: "benchmark-controller",
+    namespace: "benchmarking",
+  },
+  roleRef: {
+    apiGroup: "rbac.authorization.k8s.io",
+    kind: "Role",
+    name: "benchmark-controller",
+  },
+  subjects: [{
+    kind: "ServiceAccount",
+    name: "benchmark-controller",
+    namespace: "benchmarking",
+  }],
+}, { provider: k8sProvider, dependsOn: [controllerRole, controllerKsa] });
+
 // Controller StatefulSet
 
 const imageTag = config.get("imageTag") || "latest";
