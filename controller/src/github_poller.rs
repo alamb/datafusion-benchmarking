@@ -42,7 +42,7 @@ pub async fn poll_loop(
     loop {
         for repo in config.benchmark_config.repos.keys() {
             if let Err(e) = poll_repo(&pool, &gh, &config.benchmark_config, repo, config.poll_interval_secs).await {
-                warn!(repo, error = %e, "poll error");
+                warn!(repo, error = ?e, "poll error");
             }
         }
         tokio::select! {
