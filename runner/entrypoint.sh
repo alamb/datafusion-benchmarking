@@ -8,8 +8,13 @@ set -euo pipefail
 #   BENCHMARKS    - space-separated benchmark names (for standard type)
 #   BENCH_NAME    - benchmark name (for criterion types)
 #   REPO          - repo name (e.g. apache/datafusion)
+#   COMMENT_ID    - GitHub comment ID that triggered this benchmark
 
 # gh CLI automatically uses GITHUB_TOKEN from the environment
+
+# Build a link to the triggering comment for cross-referencing
+COMMENT_URL="${PR_URL}#issuecomment-${COMMENT_ID}"
+export COMMENT_URL
 
 OUTPUT_FILE="/tmp/benchmark_output.txt"
 : > "${OUTPUT_FILE}"
@@ -24,7 +29,7 @@ error_handler() {
   local body_file
   body_file="$(mktemp)"
   {
-    echo "Benchmark script failed with exit code ${exit_code}."
+    echo "Benchmark for [this request](${COMMENT_URL}) failed with exit code ${exit_code}."
     echo
     echo "Last 20 lines of output:"
     echo "<details><summary>Click to expand</summary>"

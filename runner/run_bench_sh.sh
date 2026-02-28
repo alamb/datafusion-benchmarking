@@ -47,7 +47,7 @@ BASE_PID=$!
 # Post "running" comment
 ######
 cat > /tmp/comment.txt <<EOL
-🤖 Benchmark running (GKE)
+🤖 Benchmark running (GKE) | [trigger](${COMMENT_URL})
 \`$(uname -a)\`
 Comparing ${BRANCH_NAME} (${BRANCH_BASE}) to ${MERGE_BASE} [diff](https://github.com/apache/datafusion/compare/${MERGE_BASE}..${BRANCH_BASE}) using: ${BENCHMARKS}
 Results will be posted here when complete
@@ -92,7 +92,7 @@ rm -f /tmp/report.txt
 
 REPORT=$(cat /tmp/report.txt)
 cat > /tmp/comment.txt <<EOL
-🤖 Benchmark completed (GKE)
+🤖 Benchmark completed (GKE) | [trigger](${COMMENT_URL})
 
 <details><summary>Details</summary>
 <p>

@@ -44,7 +44,7 @@ cargo update
 # Post "running" comment
 ######
 cat > /tmp/comment.txt <<EOL
-🤖 Arrow criterion benchmark running (GKE)
+🤖 Arrow criterion benchmark running (GKE) | [trigger](${COMMENT_URL})
 \`$(uname -a)\`
 Comparing ${BRANCH_NAME} (${BRANCH_BASE}) to ${MERGE_BASE} [diff](https://github.com/apache/arrow-rs/compare/${MERGE_BASE}..${BRANCH_BASE})
 BENCH_NAME=${BENCH_NAME}
@@ -95,7 +95,7 @@ critcmp main "${BENCH_BRANCH_NAME}" > /tmp/report.txt 2>&1
 
 REPORT=$(cat /tmp/report.txt)
 cat > /tmp/comment.txt <<EOL
-🤖 Arrow criterion benchmark completed (GKE)
+🤖 Arrow criterion benchmark completed (GKE) | [trigger](${COMMENT_URL})
 
 <details><summary>Details</summary>
 <p>

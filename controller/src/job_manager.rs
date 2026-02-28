@@ -90,11 +90,14 @@ async fn reconcile_pending(
                 db::update_job_status(pool, job.id, JobStatus::Running, Some(&k8s_name), None)
                     .await?;
 
-                // Post "running" comment
+                // Post "running" comment, linking back to the triggering comment
+                let comment_url = format!(
+                    "{}#issuecomment-{}",
+                    job.pr_url, job.comment_id
+                );
                 let msg = format!(
-                    "Benchmark job started for PR #{} (job {}). \
+                    "Benchmark job started for [this request]({comment_url}) (job `{k8s_name}`). \
                      Results will be posted here when complete.",
-                    job.pr_number, k8s_name
                 );
                 if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
                     warn!(error = %e, "failed to post running comment");
@@ -111,7 +114,13 @@ async fn reconcile_pending(
                 )
                 .await?;
 
-                let msg = format!("Failed to start benchmark for PR #{}: {e}", job.pr_number);
+                let comment_url = format!(
+                    "{}#issuecomment-{}",
+                    job.pr_url, job.comment_id
+                );
+                let msg = format!(
+                    "Failed to start benchmark for [this request]({comment_url}): {e}",
+                );
                 if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
                     warn!(error = %e, "failed to post error comment");
                 }
@@ -211,6 +220,7 @@ async fn create_k8s_job(
 
     let mut env = vec![
         env_var("PR_URL", job.pr_url.clone()),
+        env_var("COMMENT_ID", job.comment_id.to_string()),
         env_var("BENCHMARKS", benchmarks.join(" ")),
         env_var("BENCH_TYPE", job.job_type.clone()),
         env_var("REPO", job.repo.clone()),
@@ -263,6 +273,13 @@ async fn create_k8s_job(
         metadata: ObjectMeta {
             name: Some(job_name.clone()),
             namespace: Some(config.k8s_namespace.clone()),
+            labels: Some({
+                let mut l = BTreeMap::new();
+                l.insert("app".to_string(), "benchmark-runner".to_string());
+                l.insert("job-id".to_string(), job.id.to_string());
+                l.insert("comment-id".to_string(), job.comment_id.to_string());
+                l
+            }),
             ..Default::default()
         },
         spec: Some(JobSpec {
@@ -275,6 +292,7 @@ async fn create_k8s_job(
                         let mut l = BTreeMap::new();
                         l.insert("app".to_string(), "benchmark-runner".to_string());
                         l.insert("job-id".to_string(), job.id.to_string());
+                        l.insert("comment-id".to_string(), job.comment_id.to_string());
                         l
                     }),
                     ..Default::default()
