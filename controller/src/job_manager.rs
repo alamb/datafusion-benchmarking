@@ -1,8 +1,7 @@
 //! Kubernetes Job reconciliation loop.
 //!
 //! Drives benchmark jobs through their lifecycle: creates K8s Jobs for
-//! pending rows, polls running jobs for completion, and posts results back
-//! to GitHub.
+//! pending rows and polls running jobs for completion.
 
 use std::collections::BTreeMap;
 
@@ -59,7 +58,7 @@ pub async fn reconcile_loop(
         if let Err(e) = reconcile_pending(&config, &pool, &gh, &kube_client).await {
             warn!(error = %e, "reconcile pending error");
         }
-        if let Err(e) = reconcile_active(&config, &pool, &gh, &kube_client).await {
+        if let Err(e) = reconcile_active(&config, &pool, &kube_client).await {
             warn!(error = %e, "reconcile active error");
         }
         tokio::select! {
@@ -126,7 +125,6 @@ async fn reconcile_pending(
 async fn reconcile_active(
     config: &Config,
     pool: &SqlitePool,
-    gh: &GitHubClient,
     kube: &KubeClient,
 ) -> Result<()> {
     let active = db::get_active_jobs(pool).await?;
@@ -149,19 +147,8 @@ async fn reconcile_active(
                     db::update_job_status(pool, job.id, JobStatus::Completed, None, None).await?;
                 } else if failed > 0 {
                     info!(job_id = job.id, "job failed");
-                    let error_msg = read_pod_error(kube, config, &k8s_name).await;
-                    db::update_job_status(pool, job.id, JobStatus::Failed, None, Some(&error_msg))
+                    db::update_job_status(pool, job.id, JobStatus::Failed, None, Some("K8s job failed"))
                         .await?;
-
-                    let msg = format!(
-                        "Benchmark job `{k8s_name}` failed for PR #{}.\n\n\
-                         <details><summary>Error details</summary>\n\n\
-                         ```\n{error_msg}\n```\n\n</details>",
-                        job.pr_number
-                    );
-                    if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
-                        warn!(error = %e, "failed to post failure comment");
-                    }
                 }
             }
             Err(kube::Error::Api(ae)) if ae.code == 404 => {
@@ -185,39 +172,6 @@ async fn reconcile_active(
     }
 
     Ok(())
-}
-
-/// Fetch the last 50 lines of logs from the first pod of a failed K8s Job.
-async fn read_pod_error(kube: &KubeClient, config: &Config, job_name: &str) -> String {
-    use k8s_openapi::api::core::v1::Pod;
-    let pods_api: Api<Pod> = Api::namespaced(kube.clone(), &config.k8s_namespace);
-
-    let label = format!("job-name={job_name}");
-    match pods_api
-        .list(&kube::api::ListParams::default().labels(&label))
-        .await
-    {
-        Ok(list) => {
-            if let Some(pod) = list.items.first() {
-                let pod_name = pod.metadata.name.as_deref().unwrap_or("unknown");
-                match pods_api
-                    .logs(
-                        pod_name,
-                        &kube::api::LogParams {
-                            tail_lines: Some(50),
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                {
-                    Ok(logs) => return logs,
-                    Err(e) => return format!("Failed to read pod logs: {e}"),
-                }
-            }
-            "No pods found for job".to_string()
-        }
-        Err(e) => format!("Failed to list pods: {e}"),
-    }
 }
 
 /// Shorthand for constructing a plain-value [`EnvVar`].
