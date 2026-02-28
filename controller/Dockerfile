@@ -2,10 +2,12 @@ FROM rust:1-bookworm AS builder
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs
+RUN cargo build --release
+
 COPY src/ src/
 COPY migrations/ migrations/
-
-RUN cargo build --release
+RUN touch src/main.rs && cargo build --release
 
 FROM debian:bookworm-slim
 

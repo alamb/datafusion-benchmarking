@@ -43,12 +43,18 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build and push controller
-        run: |
-          docker build -t ${{ env.REGISTRY }}/controller:${{ github.sha }} controller/
-          docker tag ${{ env.REGISTRY }}/controller:${{ github.sha }} ${{ env.REGISTRY }}/controller:latest
-          docker push ${{ env.REGISTRY }}/controller:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/controller:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: controller/
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/controller:${{ github.sha }}
+            ${{ env.REGISTRY }}/controller:latest
+          cache-from: type=gha,scope=controller
+          cache-to: type=gha,mode=max,scope=controller
 
       - name: Restart controller
         run: |
@@ -74,9 +80,15 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build and push runner
-        run: |
-          docker build -t ${{ env.REGISTRY }}/runner:${{ github.sha }} runner/
-          docker tag ${{ env.REGISTRY }}/runner:${{ github.sha }} ${{ env.REGISTRY }}/runner:latest
-          docker push ${{ env.REGISTRY }}/runner:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/runner:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: runner/
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/runner:${{ github.sha }}
+            ${{ env.REGISTRY }}/runner:latest
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner

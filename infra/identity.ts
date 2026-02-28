@@ -1,9 +1,34 @@
 import * as gcp from "@pulumi/gcp";
 import * as pulumi from "@pulumi/pulumi";
-import { cluster } from "./cluster";
+import { registry } from "./registry";
 
-const config = new pulumi.Config();
 const project = gcp.config.project!;
+const gcpConfig = new pulumi.Config("gcp");
+const region = gcpConfig.require("region");
+
+// -----------------------------------------------------------------------
+// Bootstrap resources (WIF pool, WIF provider, gha-deployer SA) are
+// managed manually via bootstrap_oidc.sh because they are prerequisites
+// for GitHub Actions to authenticate to GCP — Pulumi can't create the
+// resources it needs to run.
+//
+// However, IAM *bindings* that reference Pulumi-managed resources (like
+// the Artifact Registry repo) belong here so we can scope them narrowly.
+// -----------------------------------------------------------------------
+
+// Reference the bootstrap-created gha-deployer service account
+const ghaDeployerEmail = `gha-deployer@${project}.iam.gserviceaccount.com`;
+
+// --- GHA deployer: scoped Artifact Registry access ---
+// Writer on specifically our benchmarking repo, not the whole project.
+
+new gcp.artifactregistry.RepositoryIamMember("gha-registry-writer", {
+  project,
+  location: region,
+  repository: registry.repositoryId,
+  role: "roles/artifactregistry.writer",
+  member: `serviceAccount:${ghaDeployerEmail}`,
+});
 
 // --- Controller service account (used by the controller pod via Workload Identity) ---
 
@@ -19,64 +44,9 @@ new gcp.projects.IAMMember("controller-container-developer", {
   member: pulumi.interpolate`serviceAccount:${controllerSa.email}`,
 });
 
-// --- GHA deployer service account ---
-
-export const ghaSa = new gcp.serviceaccount.Account("gha-deployer", {
-  accountId: "gha-deployer",
-  displayName: "GitHub Actions Deployer",
-});
-
-const ghaRoles = [
-  "roles/container.admin",
-  "roles/artifactregistry.writer",
-  "roles/iam.serviceAccountUser",
-];
-
-for (const role of ghaRoles) {
-  const safeName = role.replace(/\//g, "-").replace(/\./g, "-");
-  new gcp.projects.IAMMember(`gha-${safeName}`, {
-    project,
-    role,
-    member: pulumi.interpolate`serviceAccount:${ghaSa.email}`,
-  });
-}
-
-// --- Workload Identity Federation for GitHub Actions ---
-
-export const wifPool = new gcp.iam.WorkloadIdentityPool("github-actions", {
-  workloadIdentityPoolId: "github-actions",
-  displayName: "GitHub Actions",
-});
-
-export const wifProvider = new gcp.iam.WorkloadIdentityPoolProvider("github-oidc", {
-  workloadIdentityPoolId: wifPool.workloadIdentityPoolId,
-  workloadIdentityPoolProviderId: "github-oidc",
-  displayName: "GitHub OIDC",
-  attributeMapping: {
-    "google.subject": "assertion.sub",
-    "attribute.repository": "assertion.repository",
-    "attribute.actor": "assertion.actor",
-  },
-  attributeCondition: 'assertion.repository == "adriangb/datafusion-benchmarking"',
-  oidc: {
-    issuerUri: "https://token.actions.githubusercontent.com",
-  },
-});
-
-// Allow the WIF pool to impersonate the GHA service account
-new gcp.serviceaccount.IAMMember("gha-wif-binding", {
-  serviceAccountId: controllerSa.name,
-  role: "roles/iam.workloadIdentityUser",
-  member: pulumi.interpolate`principalSet://iam.googleapis.com/${wifPool.name}/attribute.repository/adriangb/datafusion-benchmarking`,
-});
-
-new gcp.serviceaccount.IAMMember("gha-deployer-wif-binding", {
-  serviceAccountId: ghaSa.name,
-  role: "roles/iam.workloadIdentityUser",
-  member: pulumi.interpolate`principalSet://iam.googleapis.com/${wifPool.name}/attribute.repository/adriangb/datafusion-benchmarking`,
-});
-
 // --- Workload Identity binding for controller K8s SA ---
+// Allows the K8s service account in the benchmarking namespace to
+// impersonate the GCP controller service account.
 
 export const controllerWiBinding = new gcp.serviceaccount.IAMMember("controller-wi-binding", {
   serviceAccountId: controllerSa.name,
@@ -86,6 +56,4 @@ export const controllerWiBinding = new gcp.serviceaccount.IAMMember("controller-
 
 // --- Outputs ---
 
-export const wifProviderName = wifProvider.name;
-export const ghaServiceAccountEmail = ghaSa.email;
 export const controllerServiceAccountEmail = controllerSa.email;
