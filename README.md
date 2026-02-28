@@ -220,3 +220,7 @@ One-time setup for GitHub Actions → GCP authentication:
 | `benchmarks` | Trigger parsing, per-repo allowlists, classification |
 | `github` | GitHub REST API client (comments, reactions) |
 | `config` | Environment-based configuration |
+
+## Observability
+
+We use [Logfire](https://logfire-us.pydantic.dev/l/join-adriangb/bavCVFu0iw) for tracing and metrics.

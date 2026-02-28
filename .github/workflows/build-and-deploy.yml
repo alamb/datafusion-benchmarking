@@ -115,9 +115,8 @@ jobs:
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Install gke-gcloud-auth-plugin
-        run: gcloud components install gke-gcloud-auth-plugin
+        with:
+          install_components: gke-gcloud-auth-plugin
 
       - name: Install dependencies
         run: npm ci
