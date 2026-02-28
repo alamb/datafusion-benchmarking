@@ -55,6 +55,22 @@ export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-cont
         containers: [{
           name: "controller",
           image: controllerImage,
+          ports: [{ name: "health", containerPort: 8080, protocol: "TCP" }],
+          startupProbe: {
+            httpGet: { path: "/healthz", port: "health" },
+            failureThreshold: 30,
+            periodSeconds: 2,
+          },
+          livenessProbe: {
+            httpGet: { path: "/healthz", port: "health" },
+            periodSeconds: 30,
+            failureThreshold: 3,
+          },
+          readinessProbe: {
+            httpGet: { path: "/readyz", port: "health" },
+            periodSeconds: 10,
+            failureThreshold: 3,
+          },
           env: [
             { name: "DATABASE_URL", value: "sqlite:///data/benchmark.db" },
             { name: "WATCHED_REPOS", value: "adriangb/datafusion" },

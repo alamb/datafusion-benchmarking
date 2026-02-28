@@ -32,20 +32,31 @@ use crate::models::{GitHubComment, JobInsert};
 /// │  └────────────────────────────────────────┘  │
 /// └──────────────────────────────────────────────┘
 /// ```
-pub async fn poll_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
+pub async fn poll_loop(
+    config: Config,
+    pool: SqlitePool,
+    gh: GitHubClient,
+    token: tokio_util::sync::CancellationToken,
+) {
     let interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
     loop {
         for repo in &config.watched_repos {
-            if let Err(e) = poll_repo(&pool, &gh, repo).await {
+            if let Err(e) = poll_repo(&pool, &gh, repo, config.poll_interval_secs).await {
                 warn!(repo, error = %e, "poll error");
             }
         }
-        tokio::time::sleep(interval).await;
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            _ = token.cancelled() => {
+                info!("poller shutting down");
+                break;
+            }
+        }
     }
 }
 
 /// Fetch and process recent comments for a single repo.
-async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str) -> Result<()> {
+async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str, poll_interval_secs: u64) -> Result<()> {
     let repo_cfg = match RepoConfig::for_repo(repo) {
         Some(c) => c,
         None => {
@@ -71,8 +82,11 @@ async fn poll_repo(pool: &SqlitePool, gh: &GitHubClient, repo: &str) -> Result<(
         }
     }
 
-    let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    db::set_last_scan(pool, repo, &now).await?;
+    // Store a scan timestamp that overlaps by 2 poll intervals so restarts
+    // don't miss comments. The seen_comments table deduplicates processing.
+    let overlap = Utc::now() - Duration::seconds((poll_interval_secs * 2) as i64);
+    let scan_ts = overlap.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    db::set_last_scan(pool, repo, &scan_ts).await?;
 
     Ok(())
 }

@@ -19,4 +19,5 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 
 COPY --from=builder /build/target/release/benchmark-controller /usr/local/bin/benchmark-controller
 
+EXPOSE 8080
 ENTRYPOINT ["benchmark-controller"]

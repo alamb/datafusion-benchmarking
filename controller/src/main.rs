@@ -1,25 +1,22 @@
 //! Benchmark controller entry point.
 //!
 //! Spawns two long-running tasks — the GitHub comment poller and the K8s Job
-//! reconciler — and exits if either panics.
+//! reconciler — and exits gracefully on SIGTERM/SIGINT.
 
 mod benchmarks;
 mod config;
 mod db;
 mod github;
 mod github_poller;
+mod health;
 mod job_manager;
 mod models;
 
 use anyhow::Result;
-use tracing::info;
+use std::sync::atomic::Ordering;
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
 
-/// Entry point. Spawns two long-running tasks:
-///
-/// - **GitHub poller** — scans PR comments for benchmark triggers
-/// - **Job reconciler** — creates K8s Jobs for pending work, monitors active ones
-///
-/// Exits if either task panics.
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -40,24 +37,79 @@ async fn main() -> Result<()> {
 
     let gh = github::GitHubClient::new(&config.github_token);
 
+    let token = CancellationToken::new();
+    let ready = health::ready_flag();
+
+    let health_handle = tokio::spawn(health::serve(token.clone(), ready.clone()));
+
     let poller = tokio::spawn(github_poller::poll_loop(
         config.clone(),
         pool.clone(),
         gh.clone(),
+        token.clone(),
     ));
 
     let reconciler = tokio::spawn(job_manager::reconcile_loop(
         config.clone(),
         pool.clone(),
         gh.clone(),
+        token.clone(),
     ));
 
+    let cleanup = tokio::spawn({
+        let pool = pool.clone();
+        let token = token.clone();
+        async move {
+            let interval = tokio::time::Duration::from_secs(3600);
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(interval) => {}
+                    _ = token.cancelled() => {
+                        info!("cleanup task shutting down");
+                        break;
+                    }
+                }
+                match db::run_cleanup(&pool).await {
+                    Ok((comments, jobs)) => {
+                        if comments > 0 || jobs > 0 {
+                            info!(comments, jobs, "cleanup: deleted old rows");
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = %e, "cleanup failed");
+                    }
+                }
+            }
+        }
+    });
+
+    ready.store(true, Ordering::Relaxed);
     info!("controller running");
 
     tokio::select! {
-        r = poller => { r?; }
-        r = reconciler => { r?; }
+        _ = tokio::signal::ctrl_c() => {
+            info!("received shutdown signal");
+        }
+        r = poller => {
+            error!("poller exited: {:?}", r);
+        }
+        r = reconciler => {
+            error!("reconciler exited: {:?}", r);
+        }
+        r = cleanup => {
+            error!("cleanup exited: {:?}", r);
+        }
     }
+
+    info!("shutting down, waiting for tasks to finish");
+    token.cancel();
+
+    // Give the health server a moment to stop
+    let _ = tokio::time::timeout(
+        tokio::time::Duration::from_secs(5),
+        health_handle,
+    )
+    .await;
 
     Ok(())
 }

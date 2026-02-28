@@ -43,7 +43,12 @@ const JOB_NAME_HASH_MASK: u64 = 0xFFFF;
 /// │                 └─► K8s 404        ──► status = failed  │
 /// └─────────────────────────────────────────────────────────┘
 /// ```
-pub async fn reconcile_loop(config: Config, pool: SqlitePool, gh: GitHubClient) {
+pub async fn reconcile_loop(
+    config: Config,
+    pool: SqlitePool,
+    gh: GitHubClient,
+    token: tokio_util::sync::CancellationToken,
+) {
     let interval = tokio::time::Duration::from_secs(config.reconcile_interval_secs);
 
     let kube_client = match KubeClient::try_default().await {
@@ -61,7 +66,13 @@ pub async fn reconcile_loop(config: Config, pool: SqlitePool, gh: GitHubClient) 
         if let Err(e) = reconcile_active(&config, &pool, &gh, &kube_client).await {
             warn!(error = %e, "reconcile active error");
         }
-        tokio::time::sleep(interval).await;
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            _ = token.cancelled() => {
+                info!("reconciler shutting down");
+                break;
+            }
+        }
     }
 }
 
