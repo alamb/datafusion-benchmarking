@@ -193,7 +193,9 @@ mod tests {
         let c = GitHubComment {
             id: 1,
             body: Some("hello".to_string()),
-            user: Some(GitHubUser { login: "alice".to_string() }),
+            user: Some(GitHubUser {
+                login: "alice".to_string(),
+            }),
             html_url: Some("https://example.com".to_string()),
             created_at: Some("2024-01-01".to_string()),
             issue_url: Some("https://api.github.com/repos/o/r/issues/1".to_string()),
@@ -202,7 +204,10 @@ mod tests {
         assert_eq!(c.login(), "alice");
         assert_eq!(c.url(), "https://example.com");
         assert_eq!(c.created_at_str(), "2024-01-01");
-        assert_eq!(c.issue_url_str(), "https://api.github.com/repos/o/r/issues/1");
+        assert_eq!(
+            c.issue_url_str(),
+            "https://api.github.com/repos/o/r/issues/1"
+        );
     }
 
     #[test]

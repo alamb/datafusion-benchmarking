@@ -285,13 +285,11 @@ mod tests {
             .await
             .unwrap();
 
-        let jobs = sqlx::query_as::<_, BenchmarkJob>(
-            "SELECT * FROM benchmark_jobs WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let jobs = sqlx::query_as::<_, BenchmarkJob>("SELECT * FROM benchmark_jobs WHERE id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(jobs.k8s_job_name.as_deref(), Some("my-job"));
     }
 
@@ -334,13 +332,19 @@ mod tests {
     async fn last_scan_lifecycle() {
         let pool = test_pool().await;
 
-        assert!(get_last_scan(&pool, "apache/datafusion").await.unwrap().is_none());
+        assert!(get_last_scan(&pool, "apache/datafusion")
+            .await
+            .unwrap()
+            .is_none());
 
         set_last_scan(&pool, "apache/datafusion", "2024-01-01T00:00:00Z")
             .await
             .unwrap();
         assert_eq!(
-            get_last_scan(&pool, "apache/datafusion").await.unwrap().as_deref(),
+            get_last_scan(&pool, "apache/datafusion")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("2024-01-01T00:00:00Z")
         );
 
@@ -349,7 +353,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            get_last_scan(&pool, "apache/datafusion").await.unwrap().as_deref(),
+            get_last_scan(&pool, "apache/datafusion")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("2024-06-01T00:00:00Z")
         );
     }

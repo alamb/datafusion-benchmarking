@@ -17,6 +17,8 @@ SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 echo "==> Setting gcloud project to ${PROJECT_ID}..."
 gcloud config set project "$PROJECT_ID"
 
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
+
 echo "==> Enabling required GCP APIs..."
 gcloud services enable \
   container.googleapis.com \
@@ -67,7 +69,7 @@ for ROLE in "${ROLES[@]}"; do
 done
 
 echo "==> Binding WIF pool to gha-deployer SA..."
-POOL_NAME="projects/${PROJECT_ID}/locations/global/workloadIdentityPools/${POOL_ID}"
+POOL_NAME="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}"
 gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
   --role="roles/iam.workloadIdentityUser" \
   --member="principalSet://iam.googleapis.com/${POOL_NAME}/attribute.repository/${REPO}" \

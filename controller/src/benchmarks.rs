@@ -438,12 +438,18 @@ mod tests {
 
     #[test]
     fn classify_df_standard() {
-        assert_eq!(df_config().classify_benchmark("tpch"), Some(JobType::Standard));
+        assert_eq!(
+            df_config().classify_benchmark("tpch"),
+            Some(JobType::Standard)
+        );
     }
 
     #[test]
     fn classify_df_criterion() {
-        assert_eq!(df_config().classify_benchmark("sql_planner"), Some(JobType::Criterion));
+        assert_eq!(
+            df_config().classify_benchmark("sql_planner"),
+            Some(JobType::Criterion)
+        );
     }
 
     #[test]
@@ -469,10 +475,7 @@ mod tests {
 
     #[test]
     fn supported_msg_with_unsupported() {
-        let msg = supported_benchmarks_message(
-            &df_config(),
-            &["bogus".to_string()],
-        );
+        let msg = supported_benchmarks_message(&df_config(), &["bogus".to_string()]);
         assert!(msg.contains("Unsupported benchmarks: bogus"));
     }
 
