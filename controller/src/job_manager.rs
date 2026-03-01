@@ -86,7 +86,7 @@ async fn reconcile_pending(
     for job in pending {
         match create_k8s_job(config, &jobs_api, &job).await {
             Ok(k8s_name) => {
-                info!(job_id = job.id, k8s_name = %k8s_name, "created k8s job");
+                info!(comment_id = job.comment_id, k8s_name = %k8s_name, "created k8s job");
                 db::update_job_status(pool, job.id, JobStatus::Running, Some(&k8s_name), None)
                     .await?;
 
@@ -101,7 +101,7 @@ async fn reconcile_pending(
                 }
             }
             Err(e) => {
-                warn!(job_id = job.id, error = %e, "failed to create k8s job");
+                warn!(comment_id = job.comment_id, error = %e, "failed to create k8s job");
                 db::update_job_status(
                     pool,
                     job.id,
@@ -156,12 +156,12 @@ async fn reconcile_active(config: &Config, pool: &SqlitePool, kube: &KubeClient)
                     .unwrap_or(false);
 
                 if succeeded > 0 {
-                    info!(job_id = job.id, "job completed successfully");
+                    info!(comment_id = job.comment_id, "job completed successfully");
                     db::update_job_status(pool, job.id, JobStatus::Completed, None, None).await?;
                 } else if is_terminal_failure {
                     let failed_count = status.and_then(|s| s.failed).unwrap_or(0);
                     info!(
-                        job_id = job.id,
+                        comment_id = job.comment_id,
                         failed_count, "job failed after all retries"
                     );
                     db::update_job_status(
@@ -176,7 +176,7 @@ async fn reconcile_active(config: &Config, pool: &SqlitePool, kube: &KubeClient)
             }
             Err(kube::Error::Api(ae)) if ae.code == 404 => {
                 warn!(
-                    job_id = job.id,
+                    comment_id = job.comment_id,
                     k8s_name, "k8s job not found, marking failed"
                 );
                 db::update_job_status(
@@ -189,7 +189,7 @@ async fn reconcile_active(config: &Config, pool: &SqlitePool, kube: &KubeClient)
                 .await?;
             }
             Err(e) => {
-                warn!(job_id = job.id, error = %e, "error checking k8s job");
+                warn!(comment_id = job.comment_id, error = %e, "error checking k8s job");
             }
         }
     }
@@ -211,7 +211,7 @@ fn env_var(name: &str, value: impl Into<String>) -> EnvVar {
 /// Resource defaults come from [`Config`]. Tolerates GKE spot instances.
 /// Uses an ephemeral volume at `/workspace` for build artifacts.
 /// `GITHUB_TOKEN` is injected from the `github-token` Secret.
-#[tracing::instrument(skip(config, jobs_api), fields(job_id = job.id, pr_number = job.pr_number))]
+#[tracing::instrument(skip(config, jobs_api), fields(comment_id = job.comment_id, pr_number = job.pr_number))]
 async fn create_k8s_job(
     config: &Config,
     jobs_api: &Api<Job>,
@@ -220,7 +220,7 @@ async fn create_k8s_job(
     let benchmarks: Vec<String> = serde_json::from_str(&job.benchmarks)?;
     let user_env_vars: Vec<String> = serde_json::from_str(&job.env_vars)?;
 
-    let job_name = format!("bench-{}", job.id);
+    let job_name = format!("bench-c{}-{}", job.comment_id, job.id);
 
     let cpu = job.cpu_request.as_deref().unwrap_or(&config.default_cpu);
     let memory = job
@@ -311,7 +311,6 @@ async fn create_k8s_job(
             labels: Some({
                 let mut l = BTreeMap::new();
                 l.insert("app".to_string(), "benchmark-runner".to_string());
-                l.insert("job-id".to_string(), job.id.to_string());
                 l.insert("comment-id".to_string(), job.comment_id.to_string());
                 l
             }),
@@ -326,7 +325,6 @@ async fn create_k8s_job(
                     labels: Some({
                         let mut l = BTreeMap::new();
                         l.insert("app".to_string(), "benchmark-runner".to_string());
-                        l.insert("job-id".to_string(), job.id.to_string());
                         l.insert("comment-id".to_string(), job.comment_id.to_string());
                         l
                     }),

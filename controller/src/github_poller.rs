@@ -290,12 +290,16 @@ fn format_queue_message(
     if jobs.is_empty() {
         lines.push("No pending jobs.".to_string());
     } else {
-        lines.push("| ID | Repo | PR | User | Benchmarks | Status |".to_string());
+        lines.push("| Comment | Repo | PR | User | Benchmarks | Status |".to_string());
         lines.push("| --- | --- | --- | --- | --- | --- |".to_string());
         for job in jobs {
+            let comment_link = format!(
+                "[#{}]({}#issuecomment-{})",
+                job.comment_id, job.pr_url, job.comment_id
+            );
             lines.push(format!(
                 "| {} | {} | #{} | {} | {} | {} |",
-                job.id, job.repo, job.pr_number, job.login, job.benchmarks, job.status
+                comment_link, job.repo, job.pr_number, job.login, job.benchmarks, job.status
             ));
         }
     }
@@ -379,8 +383,8 @@ mod tests {
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         };
         let msg = format_queue_message("bob", "https://example.com/c/2", &[job]);
-        assert!(msg.contains("| ID |"));
-        assert!(msg.contains("| 1 |"));
+        assert!(msg.contains("| Comment |"));
+        assert!(msg.contains("[#100](https://github.com/apache/datafusion/pull/42#issuecomment-100)"));
         assert!(msg.contains("apache/datafusion"));
         assert!(msg.contains("#42"));
     }
