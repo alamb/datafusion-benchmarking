@@ -1,6 +1,6 @@
 import * as gcp from "@pulumi/gcp";
 import * as pulumi from "@pulumi/pulumi";
-import { registry } from "./registry";
+import { registry, sccacheBucket } from "./registry";
 
 const project = gcp.config.project!;
 const gcpConfig = new pulumi.Config("gcp");
@@ -55,6 +55,34 @@ export const controllerWiBinding = new gcp.serviceaccount.IAMMember(
   }
 );
 
+// --- Benchmark runner service account (used by runner pods via Workload Identity) ---
+
+export const runnerSa = new gcp.serviceaccount.Account(
+  "benchmark-runner",
+  {
+    accountId: "benchmark-runner",
+    displayName: "Benchmark Runner",
+  },
+);
+
+// Runner needs read/write access to the sccache GCS bucket
+new gcp.storage.BucketIAMMember("runner-sccache-admin", {
+  bucket: sccacheBucket.name,
+  role: "roles/storage.objectAdmin",
+  member: pulumi.interpolate`serviceAccount:${runnerSa.email}`,
+});
+
+// Workload Identity binding for runner K8s SA
+export const runnerWiBinding = new gcp.serviceaccount.IAMMember(
+  "runner-wi-binding",
+  {
+    serviceAccountId: runnerSa.name,
+    role: "roles/iam.workloadIdentityUser",
+    member: pulumi.interpolate`serviceAccount:${project}.svc.id.goog[benchmarking/benchmark-runner]`,
+  },
+);
+
 // --- Outputs ---
 
 export const controllerServiceAccountEmail = controllerSa.email;
+export const runnerServiceAccountEmail = runnerSa.email;

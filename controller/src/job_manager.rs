@@ -261,6 +261,13 @@ async fn create_k8s_job(
         env.push(env_var("BENCH_NAME", benchmarks[0].clone()));
     }
 
+    // sccache: inject GCS cache env vars when configured
+    if let Some(bucket) = &config.sccache_gcs_bucket {
+        env.push(env_var("SCCACHE_GCS_BUCKET", bucket.clone()));
+        env.push(env_var("RUSTC_WRAPPER", "sccache"));
+        env.push(env_var("SCCACHE_GCS_RW_MODE", "READ_WRITE"));
+    }
+
     let mut resource_requests = BTreeMap::new();
     resource_requests.insert("cpu".to_string(), Quantity(cpu.to_string()));
     resource_requests.insert("memory".to_string(), Quantity(memory.to_string()));
@@ -321,6 +328,7 @@ async fn create_k8s_job(
                     ..Default::default()
                 }),
                 spec: Some(PodSpec {
+                    service_account_name: Some("benchmark-runner".into()),
                     restart_policy: Some("Never".into()),
                     node_selector: Some(node_selector),
                     tolerations: Some(vec![Toleration {

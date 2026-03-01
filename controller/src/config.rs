@@ -57,6 +57,7 @@ pub struct BenchmarkConfig {
 /// TTL_AFTER_FINISHED_SECS   3600                                  no
 /// DEFAULT_MACHINE_FAMILY    c4a                                   no
 /// STORAGE_CLASS             hyperdisk-balanced                    no
+/// SCCACHE_GCS_BUCKET        —                                     no
 /// ```
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -79,6 +80,8 @@ pub struct Config {
     pub ttl_after_finished_secs: i32,
     /// StorageClass for the ephemeral workspace volume.
     pub storage_class: String,
+    /// GCS bucket name for sccache. When set, runner pods get `RUSTC_WRAPPER=sccache`.
+    pub sccache_gcs_bucket: Option<String>,
 }
 
 impl Config {
@@ -108,6 +111,7 @@ impl Config {
                 .parse()
                 .context("TTL_AFTER_FINISHED_SECS")?,
             storage_class: env_or("STORAGE_CLASS", "hyperdisk-balanced"),
+            sccache_gcs_bucket: std::env::var("SCCACHE_GCS_BUCKET").ok(),
         })
     }
 }

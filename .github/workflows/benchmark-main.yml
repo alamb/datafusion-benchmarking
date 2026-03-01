@@ -52,6 +52,7 @@ jobs:
             ttlSecondsAfterFinished: 3600
             template:
               spec:
+                serviceAccountName: benchmark-runner
                 restartPolicy: Never
                 nodeSelector:
                   cloud.google.com/compute-class: Performance
@@ -78,6 +79,12 @@ jobs:
                           secretKeyRef:
                             name: github-token
                             key: token
+                      - name: SCCACHE_GCS_BUCKET
+                        value: ${{ vars.GCP_PROJECT_ID }}-sccache
+                      - name: RUSTC_WRAPPER
+                        value: sccache
+                      - name: SCCACHE_GCS_RW_MODE
+                        value: READ_WRITE
                     resources:
                       requests:
                         cpu: "12"

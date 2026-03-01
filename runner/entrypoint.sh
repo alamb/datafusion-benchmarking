@@ -10,6 +10,12 @@ set -euo pipefail
 #   REPO          - repo name (e.g. apache/datafusion)
 #   COMMENT_ID    - GitHub comment ID that triggered this benchmark
 
+# --- sccache: cache compiled artifacts in GCS ---
+if [ -n "${SCCACHE_GCS_BUCKET:-}" ]; then
+  export RUSTC_WRAPPER=sccache
+  export SCCACHE_GCS_RW_MODE=READ_WRITE
+fi
+
 # gh CLI automatically uses GITHUB_TOKEN from the environment
 
 # Build a link to the triggering comment for cross-referencing
@@ -69,3 +75,8 @@ case "${BENCH_TYPE}" in
     exit 1
     ;;
 esac
+
+# Log sccache stats if enabled
+if [ -n "${RUSTC_WRAPPER:-}" ]; then
+  sccache --show-stats || true
+fi
