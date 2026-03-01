@@ -33,7 +33,14 @@ COPY tpch-answers/ /data/tpch-answers/
 
 WORKDIR /workspace
 
-COPY entrypoint.sh run_bench_sh.sh run_criterion.sh run_arrow_criterion.sh /scripts/
+# Build bench-cache binary (standalone, not part of workspace)
+COPY Cargo.toml /build/bench-cache/Cargo.toml
+COPY src/ /build/bench-cache/src/
+RUN cd /build/bench-cache && cargo build --release \
+    && cp /build/bench-cache/target/release/bench-cache /usr/local/bin/bench-cache \
+    && rm -rf /build
+
+COPY entrypoint.sh run_bench_sh.sh run_criterion.sh run_arrow_criterion.sh cache_data.sh /scripts/
 RUN chmod +x /scripts/*.sh
 
 ENTRYPOINT ["/scripts/entrypoint.sh"]

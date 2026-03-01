@@ -95,7 +95,7 @@ done
 
 for bench in ${BENCHMARKS}; do
     echo "** Creating data if needed for ${bench} **"
-    ./bench.sh data "${bench}" || true
+    /scripts/cache_data.sh "${bench}" "$(pwd)"
 
     echo "** Running ${bench} baseline (merge-base) **"
     export DATAFUSION_DIR="${BASE_DIR}"

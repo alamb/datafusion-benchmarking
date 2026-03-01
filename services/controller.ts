@@ -1,6 +1,6 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { k8sProvider, registryUrl, controllerSaEmail, runnerSaEmail, sccacheGcsBucket } from "./provider";
+import { k8sProvider, registryUrl, controllerSaEmail, runnerSaEmail, sccacheGcsBucket, dataCacheGcsBucket } from "./provider";
 
 const config = new pulumi.Config();
 
@@ -172,6 +172,7 @@ export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-cont
               { name: "LOGFIRE_TOKEN", valueFrom: { secretKeyRef: { name: "logfire-token", key: "token" } } },
             ] : []),
             { name: "SCCACHE_GCS_BUCKET", value: sccacheGcsBucket },
+            { name: "DATA_CACHE_BUCKET", value: dataCacheGcsBucket },
             { name: "LOGFIRE_SERVICE_NAME", value: "benchmark-controller" },
             { name: "LOGFIRE_ENVIRONMENT", value: "production" },
             {

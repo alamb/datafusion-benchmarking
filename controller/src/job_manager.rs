@@ -268,6 +268,11 @@ async fn create_k8s_job(
         env.push(env_var("SCCACHE_GCS_RW_MODE", "READ_WRITE"));
     }
 
+    // Benchmark data cache: inject bucket name when configured
+    if let Some(bucket) = &config.data_cache_bucket {
+        env.push(env_var("DATA_CACHE_BUCKET", bucket.clone()));
+    }
+
     let mut resource_requests = BTreeMap::new();
     resource_requests.insert("cpu".to_string(), Quantity(cpu.to_string()));
     resource_requests.insert("memory".to_string(), Quantity(memory.to_string()));

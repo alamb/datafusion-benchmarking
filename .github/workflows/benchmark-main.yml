@@ -85,6 +85,8 @@ jobs:
                         value: sccache
                       - name: SCCACHE_GCS_RW_MODE
                         value: READ_WRITE
+                      - name: DATA_CACHE_BUCKET
+                        value: ${{ vars.GCP_PROJECT_ID }}-benchdata
                     resources:
                       requests:
                         cpu: "12"

@@ -58,6 +58,7 @@ pub struct BenchmarkConfig {
 /// DEFAULT_MACHINE_FAMILY    c4a                                   no
 /// STORAGE_CLASS             hyperdisk-balanced                    no
 /// SCCACHE_GCS_BUCKET        —                                     no
+/// DATA_CACHE_BUCKET          —                                     no
 /// ```
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -82,6 +83,8 @@ pub struct Config {
     pub storage_class: String,
     /// GCS bucket name for sccache. When set, runner pods get `RUSTC_WRAPPER=sccache`.
     pub sccache_gcs_bucket: Option<String>,
+    /// GCS bucket for caching benchmark data (TPC-H, ClickBench, etc.).
+    pub data_cache_bucket: Option<String>,
 }
 
 impl Config {
@@ -112,6 +115,7 @@ impl Config {
                 .context("TTL_AFTER_FINISHED_SECS")?,
             storage_class: env_or("STORAGE_CLASS", "hyperdisk-balanced"),
             sccache_gcs_bucket: std::env::var("SCCACHE_GCS_BUCKET").ok(),
+            data_cache_bucket: std::env::var("DATA_CACHE_BUCKET").ok(),
         })
     }
 }

@@ -9,6 +9,7 @@ export const registryUrl = infra.getOutput("registry") as pulumi.Output<string>;
 export const controllerSaEmail = infra.getOutput("controllerServiceAccount") as pulumi.Output<string>;
 export const runnerSaEmail = infra.getOutput("runnerServiceAccount") as pulumi.Output<string>;
 export const sccacheGcsBucket = infra.getOutput("sccacheGcsBucket") as pulumi.Output<string>;
+export const dataCacheGcsBucket = infra.getOutput("dataCacheGcsBucket") as pulumi.Output<string>;
 
 const clusterEndpoint = infra.getOutput("endpoint") as pulumi.Output<string>;
 const clusterCaCert = infra.getOutput("caCert") as pulumi.Output<string>;

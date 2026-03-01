@@ -1,6 +1,7 @@
 import * as gcp from "@pulumi/gcp";
 import * as pulumi from "@pulumi/pulumi";
 import { registry, sccacheBucket } from "./registry";
+import { dataCacheBucket } from "./storage";
 
 const project = gcp.config.project!;
 const gcpConfig = new pulumi.Config("gcp");
@@ -68,6 +69,13 @@ export const runnerSa = new gcp.serviceaccount.Account(
 // Runner needs read/write access to the sccache GCS bucket
 new gcp.storage.BucketIAMMember("runner-sccache-admin", {
   bucket: sccacheBucket.name,
+  role: "roles/storage.objectAdmin",
+  member: pulumi.interpolate`serviceAccount:${runnerSa.email}`,
+});
+
+// Runner needs read/write access to the benchmark data cache bucket
+new gcp.storage.BucketIAMMember("runner-datacache-admin", {
+  bucket: dataCacheBucket.name,
   role: "roles/storage.objectAdmin",
   member: pulumi.interpolate`serviceAccount:${runnerSa.email}`,
 });
