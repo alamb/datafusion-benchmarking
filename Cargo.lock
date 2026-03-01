@@ -2377,7 +2377,6 @@ dependencies = [
  "clap",
  "futures",
  "object_store",
- "percent-encoding",
  "tokio",
 ]
 

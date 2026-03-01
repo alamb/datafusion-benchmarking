@@ -4,7 +4,6 @@ use clap::{Parser, Subcommand};
 use futures::TryStreamExt;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::{ObjectStore, PutPayload};
-use percent_encoding::percent_decode_str;
 
 #[derive(Parser)]
 #[command(name = "bench-cache", about = "Cache benchmark data in GCS")]
@@ -67,20 +66,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if meta.location == marker_path {
                     continue;
                 }
-                // Strip prefix to get relative path using prefix_match.
-                // Decode percent-encoded separators to handle both legacy
-                // (single-segment with %2F) and new (multi-segment) GCS keys.
+                // Strip prefix to get relative path using prefix_match
+                // which correctly yields decoded path segments
                 let parts: Vec<_> = match meta.location.prefix_match(&prefix) {
                     Some(suffix) => suffix.collect(),
                     None => continue,
                 };
-                let joined: String = parts
-                    .iter()
-                    .map(|p| p.as_ref().to_string())
-                    .collect::<Vec<_>>()
-                    .join("/");
-                let decoded = percent_decode_str(&joined).decode_utf8_lossy();
-                let rel = PathBuf::from(decoded.as_ref());
+                let rel: PathBuf = parts.iter().map(|p| p.as_ref()).collect();
                 let local_path = data_dir.join(&rel);
                 if let Some(parent) = local_path.parent() {
                     std::fs::create_dir_all(parent)?;
