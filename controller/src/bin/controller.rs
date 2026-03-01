@@ -3,19 +3,12 @@
 //! Spawns two long-running tasks — the GitHub comment poller and the K8s Job
 //! reconciler — and exits gracefully on SIGTERM/SIGINT.
 
-mod benchmarks;
-mod config;
-mod db;
-mod github;
-mod github_poller;
-mod health;
-mod job_manager;
-mod models;
-
 use anyhow::Result;
 use std::sync::atomic::Ordering;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
+
+use benchmark_controller::{config, db, github, github_poller, health, job_manager};
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -11,7 +11,27 @@ COPY Cargo.toml /build/Cargo.toml
 COPY src/ /build/src/
 RUN cd /build && cargo build --release
 
-# ── Stage 3: final runner image ──
+# ── Stage 3: build runner binary ──
+FROM rust:1-bookworm AS runner-builder
+
+WORKDIR /build
+
+# Copy workspace root manifests for dependency caching
+COPY ../Cargo.toml Cargo.lock ./
+COPY ../controller/Cargo.toml controller/Cargo.toml
+COPY Cargo.toml runner/Cargo.toml
+RUN mkdir -p controller/src/bin && echo 'fn main() {}' > controller/src/bin/controller.rs \
+    && echo 'fn main() {}' > controller/src/bin/runner.rs \
+    && mkdir -p controller/src && echo '' > controller/src/lib.rs \
+    && mkdir -p runner/src && echo 'fn main() {}' > runner/src/main.rs
+RUN cargo build --release --bin runner
+
+# Copy real source and rebuild
+COPY ../controller/src/ controller/src/
+COPY ../controller/migrations/ controller/migrations/
+RUN touch controller/src/lib.rs && cargo build --release --bin runner
+
+# ── Stage 4: final runner image ──
 FROM rust:1-bookworm
 
 # Skip rust-toolchain.toml files — use the image's pre-installed stable
@@ -48,13 +68,15 @@ COPY --from=tools /usr/local/cargo/bin/critcmp /usr/local/cargo/bin/critcmp
 COPY --from=tools /usr/local/cargo/bin/tpchgen-cli /usr/local/cargo/bin/tpchgen-cli
 COPY --from=tools /usr/local/cargo/bin/sccache /usr/local/cargo/bin/sccache
 COPY --from=bench-cache /build/target/release/bench-cache /usr/local/bin/bench-cache
+COPY --from=runner-builder /build/target/release/runner /usr/local/bin/runner
 
 # TPC-H expected answer files (extracted in GHA before build)
 COPY tpch-answers/ /data/tpch-answers/
 
-WORKDIR /workspace
-
-COPY entrypoint.sh run_bench_sh.sh run_criterion.sh run_arrow_criterion.sh cache_data.sh /scripts/
+# Keep cache_data.sh — called by the Rust runner for data generation
+COPY cache_data.sh /scripts/
 RUN chmod +x /scripts/*.sh
 
-ENTRYPOINT ["/scripts/entrypoint.sh"]
+WORKDIR /workspace
+
+ENTRYPOINT ["/usr/local/bin/runner"]

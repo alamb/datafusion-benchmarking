@@ -3,6 +3,14 @@ name = "benchmark-controller"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "controller"
+path = "src/bin/controller.rs"
+
+[[bin]]
+name = "runner"
+path = "src/bin/runner.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
