@@ -214,12 +214,19 @@ async fn process_comment(
     mark_seen(pool, comment, repo, pr_number).await?;
 
     let pr_url = format!("https://github.com/{}/pull/{}", repo, pr_number);
-    let benchmarks_json = serde_json::to_string(&request.benchmarks)?;
     let env_vars_json = serde_json::to_string(&request.env_vars)?;
 
+    // Resolve default benchmarks when "run benchmarks" is used without specific names
+    let benchmarks = if request.benchmarks.is_empty() {
+        repo_entry.default_standard.clone()
+    } else {
+        request.benchmarks.clone()
+    };
+
     // Determine job type(s) and insert jobs
-    if request.benchmarks.is_empty() {
-        // Default suite — standard job
+    if benchmarks.is_empty() {
+        // No defaults configured — insert a single standard job (runner uses its own default)
+        let benchmarks_json = serde_json::to_string(&benchmarks)?;
         db::insert_job(
             pool,
             &JobInsert {
@@ -236,7 +243,7 @@ async fn process_comment(
         .await?;
     } else {
         // Group benchmarks by type
-        for bench in &request.benchmarks {
+        for bench in &benchmarks {
             let job_type = repo_entry
                 .classify_benchmark(bench)
                 .map(|jt| jt.as_str())

@@ -55,10 +55,7 @@ impl RunnerConfig {
             pr_url,
             comment_id,
             comment_url,
-            benchmarks: env_or(
-                "BENCHMARKS",
-                "tpch_mem clickbench_partitioned clickbench_extended",
-            ),
+            benchmarks: env_or("BENCHMARKS", ""),
             bench_type: BenchType::from_str(&bench_type_str)?,
             bench_name: env_or("BENCH_NAME", "sql_planner"),
             bench_filter: env_or("BENCH_FILTER", ""),

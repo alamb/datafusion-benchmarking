@@ -152,6 +152,9 @@ export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-cont
                     "clickbench_1", "clickbench_pushdown",
                     "external_aggr", "tpcds",
                   ],
+                  default_standard: [
+                    "clickbench_partitioned", "tpcds", "tpch",
+                  ],
                   criterion: [
                     "sql_planner", "in_list", "case_when",
                     "aggregate_vectorized", "aggregate_query_sql",

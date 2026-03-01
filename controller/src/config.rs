@@ -15,6 +15,9 @@ pub struct RepoEntry {
     /// `"datafusion"` (default) or `"arrow"` — controls criterion `JobType`.
     #[serde(default = "default_criterion_type")]
     pub criterion_type: String,
+    /// Default standard benchmarks for `"run benchmarks"` (no specific names).
+    #[serde(default)]
+    pub default_standard: Vec<String>,
 }
 
 fn default_criterion_type() -> String {

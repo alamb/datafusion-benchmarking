@@ -187,6 +187,11 @@ mod tests {
             ],
             criterion: vec!["sql_planner".into(), "in_list".into(), "case_when".into()],
             criterion_type: "datafusion".into(),
+            default_standard: vec![
+                "clickbench_partitioned".into(),
+                "tpcds".into(),
+                "tpch".into(),
+            ],
         }
     }
 
@@ -195,6 +200,7 @@ mod tests {
             standard: vec![],
             criterion: vec!["arrow_reader".into(), "arrow_writer".into()],
             criterion_type: "arrow".into(),
+            default_standard: vec![],
         }
     }
 
