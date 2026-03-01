@@ -59,6 +59,7 @@ ROLES=(
   roles/iam.workloadIdentityPoolAdmin
   roles/serviceusage.serviceUsageAdmin
   roles/resourcemanager.projectIamAdmin
+  roles/storage.admin
 )
 for ROLE in "${ROLES[@]}"; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
