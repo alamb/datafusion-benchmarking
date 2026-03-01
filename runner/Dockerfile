@@ -28,6 +28,9 @@ RUN cargo install critcmp tpchgen-cli sccache
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
+# TPC-H expected answer files (extracted in GHA before build)
+COPY tpch-answers/ /data/tpch-answers/
+
 WORKDIR /workspace
 
 COPY entrypoint.sh run_bench_sh.sh run_criterion.sh run_arrow_criterion.sh /scripts/

@@ -93,6 +93,12 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
 
+      - name: Extract TPC-H answer files
+        run: |
+          docker create --name tpch-answers --platform linux/amd64 ghcr.io/scalytics/tpch-docker:main
+          docker cp tpch-answers:/opt/tpch/2.18.0_rc2/dbgen/answers/ runner/tpch-answers/
+          docker rm tpch-answers
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Build and push runner (${{ matrix.platform }})

@@ -86,6 +86,13 @@ cd benchmarks
 
 rm -rf results/*
 
+# bench.sh tries to copy TPC-H expected answers via docker, which isn't
+# available in the container. Copy the baked-in answers so it skips that step.
+for sf in 1 10; do
+    mkdir -p "data/tpch_sf${sf}/answers"
+    cp /data/tpch-answers/* "data/tpch_sf${sf}/answers/"
+done
+
 for bench in ${BENCHMARKS}; do
     echo "** Creating data if needed for ${bench} **"
     ./bench.sh data "${bench}" || true
