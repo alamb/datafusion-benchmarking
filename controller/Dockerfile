@@ -5,7 +5,9 @@ WORKDIR /build
 # Copy workspace root manifests for dependency caching
 COPY Cargo.toml Cargo.lock ./
 COPY controller/Cargo.toml controller/Cargo.toml
-RUN mkdir -p controller/src && echo 'fn main() {}' > controller/src/main.rs
+COPY runner/Cargo.toml runner/Cargo.toml
+RUN mkdir -p controller/src && echo 'fn main() {}' > controller/src/main.rs \
+    && mkdir -p runner/src && echo 'fn main() {}' > runner/src/main.rs
 RUN cargo build --release -p benchmark-controller
 
 # Copy real source and rebuild
