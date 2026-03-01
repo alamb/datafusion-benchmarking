@@ -23,12 +23,14 @@ BASE_DIR="/workspace/arrow-rs-base"
 echo "=== Cloning PR branch ==="
 git clone --depth=200 "${REPO_URL}" "${BRANCH_DIR}"
 cd "${BRANCH_DIR}"
-git fetch origin
-gh pr checkout "${PR_URL}" --force
+# Fetch PR ref and main directly to avoid tracking issues with shallow clones
+PR_NUMBER="${PR_URL##*/}"
+BRANCH_NAME=$(gh pr view "${PR_URL}" --json headRefName --jq '.headRefName')
+git fetch origin "refs/pull/${PR_NUMBER}/head:${BRANCH_NAME}" main
+git checkout "${BRANCH_NAME}"
 git submodule update --init
 MERGE_BASE=$(git merge-base HEAD origin/main)
 BRANCH_BASE=$(git rev-parse HEAD)
-BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_}
 cargo update
 
