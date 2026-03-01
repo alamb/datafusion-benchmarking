@@ -7,8 +7,8 @@ RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ca
 # ── Stage 2: build bench-cache binary ──
 FROM rust:1-bookworm AS bench-cache
 
-COPY Cargo.toml /build/Cargo.toml
-COPY src/ /build/src/
+COPY runner/Cargo.toml /build/Cargo.toml
+COPY runner/src/ /build/src/
 RUN cd /build && cargo build --release
 
 # ── Stage 3: build runner binary ──
@@ -17,9 +17,9 @@ FROM rust:1-bookworm AS runner-builder
 WORKDIR /build
 
 # Copy workspace root manifests for dependency caching
-COPY ../Cargo.toml Cargo.lock ./
-COPY ../controller/Cargo.toml controller/Cargo.toml
-COPY Cargo.toml runner/Cargo.toml
+COPY Cargo.toml Cargo.lock ./
+COPY controller/Cargo.toml controller/Cargo.toml
+COPY runner/Cargo.toml runner/Cargo.toml
 RUN mkdir -p controller/src/bin && echo 'fn main() {}' > controller/src/bin/controller.rs \
     && echo 'fn main() {}' > controller/src/bin/runner.rs \
     && mkdir -p controller/src && echo '' > controller/src/lib.rs \
@@ -27,8 +27,8 @@ RUN mkdir -p controller/src/bin && echo 'fn main() {}' > controller/src/bin/cont
 RUN cargo build --release --bin runner
 
 # Copy real source and rebuild
-COPY ../controller/src/ controller/src/
-COPY ../controller/migrations/ controller/migrations/
+COPY controller/src/ controller/src/
+COPY controller/migrations/ controller/migrations/
 RUN touch controller/src/lib.rs && cargo build --release --bin runner
 
 # ── Stage 4: final runner image ──
@@ -71,10 +71,10 @@ COPY --from=bench-cache /build/target/release/bench-cache /usr/local/bin/bench-c
 COPY --from=runner-builder /build/target/release/runner /usr/local/bin/runner
 
 # TPC-H expected answer files (extracted in GHA before build)
-COPY tpch-answers/ /data/tpch-answers/
+COPY runner/tpch-answers/ /data/tpch-answers/
 
 # Keep cache_data.sh — called by the Rust runner for data generation
-COPY cache_data.sh /scripts/
+COPY runner/cache_data.sh /scripts/
 RUN chmod +x /scripts/*.sh
 
 WORKDIR /workspace

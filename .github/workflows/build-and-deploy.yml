@@ -104,7 +104,8 @@ jobs:
       - name: Build and push runner (${{ matrix.platform }})
         uses: docker/build-push-action@v6
         with:
-          context: runner/
+          context: .
+          file: runner/Dockerfile
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ env.REGISTRY }}/runner:${{ github.sha }}-${{ matrix.scope }}
