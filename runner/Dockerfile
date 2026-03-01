@@ -1,8 +1,8 @@
 FROM rust:1-bookworm
 
-# Use minimal profile so rustup can install toolchains required by
-# rust-toolchain.toml without conflicting with pre-installed components.
-RUN rustup set profile minimal
+# Remove the pre-installed toolchain so rustup can cleanly install
+# whatever version rust-toolchain.toml requires at build time.
+RUN rustup toolchain uninstall stable && rustup set profile minimal && rustup install stable
 
 RUN apt-get update && apt-get install -y \
     git \
