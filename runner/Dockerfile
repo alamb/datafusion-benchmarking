@@ -1,5 +1,9 @@
 FROM rust:1-bookworm
 
+# Use minimal profile so rustup can install toolchains required by
+# rust-toolchain.toml without conflicting with pre-installed components.
+RUN rustup set profile minimal
+
 RUN apt-get update && apt-get install -y \
     git \
     cmake \
