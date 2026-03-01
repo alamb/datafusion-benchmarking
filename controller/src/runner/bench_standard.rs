@@ -144,7 +144,7 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     let bench_branch_name = git::sanitize_branch_name(&branch_name);
     let report = shell::run_command(
         "./bench.sh",
-        &["compare", "HEAD", &bench_branch_name],
+        &["compare_detail", "HEAD", &bench_branch_name],
         &bench_benchmarks,
     )
     .await

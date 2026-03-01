@@ -281,6 +281,12 @@ async fn create_k8s_job(
         Quantity(config.ephemeral_storage.clone()),
     );
 
+    // CPU + memory limits equal to requests → Guaranteed QoS for better isolation.
+    // Ephemeral storage is request-only (limits cause pod evictions instead of throttling).
+    let mut resource_limits = BTreeMap::new();
+    resource_limits.insert("cpu".to_string(), Quantity(cpu.to_string()));
+    resource_limits.insert("memory".to_string(), Quantity(memory.to_string()));
+
     // Map per-job cpu_arch (arm64/amd64) to a machine family, or use the config default.
     let machine_family = match job.cpu_arch.as_deref() {
         Some("arm64") => "c4a",
@@ -346,6 +352,7 @@ async fn create_k8s_job(
                         env: Some(env),
                         resources: Some(ResourceRequirements {
                             requests: Some(resource_requests),
+                            limits: Some(resource_limits),
                             ..Default::default()
                         }),
                         volume_mounts: Some(vec![VolumeMount {
