@@ -8,7 +8,7 @@
 set -euo pipefail
 
 BENCHMARKS=${BENCHMARKS:-"tpch_mem clickbench_partitioned clickbench_extended"}
-CARGO_COMMAND="cargo run --release"
+CARGO_COMMAND="cargo build --release"
 
 REPO_URL="https://github.com/${REPO}.git"
 
