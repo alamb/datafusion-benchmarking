@@ -275,14 +275,21 @@ async fn create_k8s_job(
         Some("amd64") | Some("x86_64") => "c4",
         _ => &config.default_machine_family,
     };
-    let arch = if machine_family == "c4a" { "arm64" } else { "amd64" };
+    let arch = if machine_family == "c4a" {
+        "arm64"
+    } else {
+        "amd64"
+    };
 
     let mut node_selector = BTreeMap::new();
     node_selector.insert(
         "cloud.google.com/compute-class".to_string(),
         "Performance".to_string(),
     );
-    node_selector.insert("cloud.google.com/machine-family".to_string(), machine_family.to_string());
+    node_selector.insert(
+        "cloud.google.com/machine-family".to_string(),
+        machine_family.to_string(),
+    );
     node_selector.insert("kubernetes.io/arch".to_string(), arch.to_string());
 
     let k8s_job = Job {
