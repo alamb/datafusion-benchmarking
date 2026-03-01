@@ -64,8 +64,19 @@ cd "${BASE_DIR}"
 ${BENCH_COMMAND} --no-run >> /tmp/base_build.log 2>&1 &
 BASE_PID=$!
 
-wait ${BRANCH_PID}
-wait ${BASE_PID}
+BUILD_FAILED=0
+wait ${BRANCH_PID} || BUILD_FAILED=1
+if [ ${BUILD_FAILED} -ne 0 ]; then
+    echo "=== Branch build failed ==="
+    cat /tmp/branch_build.log
+    exit 1
+fi
+wait ${BASE_PID} || BUILD_FAILED=1
+if [ ${BUILD_FAILED} -ne 0 ]; then
+    echo "=== Base build failed ==="
+    cat /tmp/base_build.log
+    exit 1
+fi
 echo "=== Compilation complete ==="
 
 ######
