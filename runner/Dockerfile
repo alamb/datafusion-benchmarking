@@ -20,8 +20,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
     && apt-get update && apt-get install -y gh && rm -rf /var/lib/apt/lists/*
 
-# Install critcmp for criterion benchmark comparisons
-RUN cargo install critcmp
+# Install critcmp for criterion benchmark comparisons, and
+# tpchgen-cli for generating TPC-H test data
+RUN cargo install critcmp tpchgen-cli
+
+# Install uv (Python package manager) — needed by bench.sh for comparison
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /workspace
 
