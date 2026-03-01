@@ -91,10 +91,7 @@ async fn reconcile_pending(
                     .await?;
 
                 // Post "running" comment, linking back to the triggering comment
-                let comment_url = format!(
-                    "{}#issuecomment-{}",
-                    job.pr_url, job.comment_id
-                );
+                let comment_url = format!("{}#issuecomment-{}", job.pr_url, job.comment_id);
                 let msg = format!(
                     "Benchmark job started for [this request]({comment_url}) (job `{k8s_name}`). \
                      Results will be posted here when complete.",
@@ -114,13 +111,9 @@ async fn reconcile_pending(
                 )
                 .await?;
 
-                let comment_url = format!(
-                    "{}#issuecomment-{}",
-                    job.pr_url, job.comment_id
-                );
-                let msg = format!(
-                    "Failed to start benchmark for [this request]({comment_url}): {e}",
-                );
+                let comment_url = format!("{}#issuecomment-{}", job.pr_url, job.comment_id);
+                let msg =
+                    format!("Failed to start benchmark for [this request]({comment_url}): {e}",);
                 if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
                     warn!(error = %e, "failed to post error comment");
                 }
@@ -156,9 +149,9 @@ async fn reconcile_active(config: &Config, pool: &SqlitePool, kube: &KubeClient)
                 let is_terminal_failure = status
                     .and_then(|s| s.conditions.as_ref())
                     .map(|conds| {
-                        conds.iter().any(|c| {
-                            c.type_ == "Failed" && c.status == "True"
-                        })
+                        conds
+                            .iter()
+                            .any(|c| c.type_ == "Failed" && c.status == "True")
                     })
                     .unwrap_or(false);
 
@@ -167,7 +160,10 @@ async fn reconcile_active(config: &Config, pool: &SqlitePool, kube: &KubeClient)
                     db::update_job_status(pool, job.id, JobStatus::Completed, None, None).await?;
                 } else if is_terminal_failure {
                     let failed_count = status.and_then(|s| s.failed).unwrap_or(0);
-                    info!(job_id = job.id, failed_count, "job failed after all retries");
+                    info!(
+                        job_id = job.id,
+                        failed_count, "job failed after all retries"
+                    );
                     db::update_job_status(
                         pool,
                         job.id,
