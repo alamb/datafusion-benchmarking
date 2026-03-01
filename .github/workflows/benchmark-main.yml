@@ -55,6 +55,7 @@ jobs:
                 restartPolicy: Never
                 nodeSelector:
                   cloud.google.com/compute-class: Performance
+                  kubernetes.io/arch: arm64
                 tolerations:
                   - key: cloud.google.com/gke-spot
                     operator: Exists
@@ -78,9 +79,9 @@ jobs:
                             key: token
                     resources:
                       requests:
-                        cpu: "30"
-                        memory: "60Gi"
-                        ephemeral-storage: "100Gi"
+                        cpu: "12"
+                        memory: "65Gi"
+                        ephemeral-storage: "128Gi"
                     volumeMounts:
                       - name: workspace
                         mountPath: /workspace
@@ -93,7 +94,7 @@ jobs:
                           accessModes: ["ReadWriteOnce"]
                           resources:
                             requests:
-                              storage: 100Gi
+                              storage: 128Gi
           EOF
 
           echo "Created job: ${JOB_NAME}"

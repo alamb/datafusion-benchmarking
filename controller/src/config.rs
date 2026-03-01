@@ -50,11 +50,12 @@ pub struct BenchmarkConfig {
 /// POLL_INTERVAL_SECS        5                                     no
 /// RECONCILE_INTERVAL_SECS   10                                    no
 /// K8S_NAMESPACE             benchmarking                          no
-/// DEFAULT_CPU               30                                    no
-/// DEFAULT_MEMORY            60Gi                                  no
-/// EPHEMERAL_STORAGE         100Gi                                 no
+/// DEFAULT_CPU               12                                    no
+/// DEFAULT_MEMORY            65Gi                                  no
+/// EPHEMERAL_STORAGE         128Gi                                 no
 /// ACTIVE_DEADLINE_SECS      7200                                  no
 /// TTL_AFTER_FINISHED_SECS   3600                                  no
+/// DEFAULT_ARCH              arm64                                 no
 /// STORAGE_CLASS             hyperdisk-balanced                    no
 /// ```
 #[derive(Debug, Clone)]
@@ -68,8 +69,10 @@ pub struct Config {
     pub runner_image: String,
     pub default_cpu: String,
     pub default_memory: String,
-    /// Ephemeral storage request for benchmark pods (e.g. `"100Gi"`).
+    /// Ephemeral storage request for benchmark pods (e.g. `"128Gi"`).
     pub ephemeral_storage: String,
+    /// Default CPU architecture for benchmark pods (e.g. `"arm64"`).
+    pub default_arch: String,
     /// Maximum wall-clock seconds a K8s Job may run before being killed.
     pub active_deadline_secs: i64,
     /// Seconds after completion before the K8s Job object is garbage-collected.
@@ -94,9 +97,10 @@ impl Config {
                 .context("RECONCILE_INTERVAL_SECS")?,
             k8s_namespace: env_or("K8S_NAMESPACE", "benchmarking"),
             runner_image: env_required("RUNNER_IMAGE")?,
-            default_cpu: env_or("DEFAULT_CPU", "30"),
-            default_memory: env_or("DEFAULT_MEMORY", "60Gi"),
-            ephemeral_storage: env_or("EPHEMERAL_STORAGE", "100Gi"),
+            default_cpu: env_or("DEFAULT_CPU", "12"),
+            default_memory: env_or("DEFAULT_MEMORY", "65Gi"),
+            ephemeral_storage: env_or("EPHEMERAL_STORAGE", "128Gi"),
+            default_arch: env_or("DEFAULT_ARCH", "arm64"),
             active_deadline_secs: env_or("ACTIVE_DEADLINE_SECS", "3600")
                 .parse()
                 .context("ACTIVE_DEADLINE_SECS")?,

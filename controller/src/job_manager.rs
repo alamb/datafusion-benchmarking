@@ -275,9 +275,11 @@ async fn create_k8s_job(
         "Performance".to_string(),
     );
 
-    if let Some(arch) = &job.cpu_arch {
-        node_selector.insert("kubernetes.io/arch".to_string(), arch.clone());
-    }
+    let arch = job
+        .cpu_arch
+        .as_deref()
+        .unwrap_or(&config.default_arch);
+    node_selector.insert("kubernetes.io/arch".to_string(), arch.to_string());
 
     let k8s_job = Job {
         metadata: ObjectMeta {
