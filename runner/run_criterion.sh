@@ -54,6 +54,12 @@ EOL
 gh pr comment "${PR_URL}" --body-file /tmp/comment.txt
 
 ######
+# Ensure the stable toolchain is up-to-date before parallel builds.
+# Two concurrent cargo invocations can race on rustup toolchain installation.
+######
+rustup toolchain install stable --no-self-update
+
+######
 # Compile both in parallel (--no-run compiles without executing)
 ######
 echo "=== Compiling PR branch and merge-base in parallel ==="

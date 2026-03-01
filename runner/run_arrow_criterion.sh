@@ -31,7 +31,6 @@ git submodule update --init
 MERGE_BASE=$(git merge-base HEAD origin/main)
 BRANCH_BASE=$(git rev-parse HEAD)
 BENCH_BRANCH_NAME=${BRANCH_NAME//\//_}
-cargo update
 
 ######
 # Clone and checkout the merge-base
@@ -41,7 +40,17 @@ git clone --depth=200 "${REPO_URL}" "${BASE_DIR}"
 cd "${BASE_DIR}"
 git -c advice.detachedHead=false checkout "${MERGE_BASE}"
 git submodule update --init
-cargo update
+
+######
+# Ensure the stable toolchain is up-to-date before any cargo commands.
+# Concurrent cargo invocations race on rustup toolchain installation
+# and corrupt each other's files.
+######
+rustup toolchain install stable --no-self-update
+
+# cargo update must run serially (after toolchain install, before parallel compile)
+cd "${BRANCH_DIR}" && cargo update
+cd "${BASE_DIR}" && cargo update
 
 ######
 # Post "running" comment

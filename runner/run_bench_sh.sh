@@ -31,11 +31,6 @@ git checkout "${BRANCH_NAME}"
 MERGE_BASE=$(git merge-base HEAD origin/main)
 BRANCH_BASE=$(git rev-parse HEAD)
 
-# Start compiling branch in the background
-cd benchmarks
-${CARGO_COMMAND} --bin dfbench >> /tmp/branch_build.log 2>&1 &
-BRANCH_PID=$!
-
 ######
 # Clone and checkout the merge-base
 ######
@@ -44,7 +39,22 @@ git clone --depth=200 "${REPO_URL}" "${BASE_DIR}"
 cd "${BASE_DIR}"
 git -c advice.detachedHead=false checkout "${MERGE_BASE}"
 
-cd benchmarks
+######
+# Ensure the stable toolchain is up-to-date before parallel builds.
+# Two concurrent cargo invocations race on rustup toolchain installation
+# and corrupt each other's files.
+######
+rustup toolchain install stable --no-self-update
+
+######
+# Compile both in parallel
+######
+echo "=== Compiling PR branch and merge-base in parallel ==="
+cd "${BRANCH_DIR}/benchmarks"
+${CARGO_COMMAND} --bin dfbench >> /tmp/branch_build.log 2>&1 &
+BRANCH_PID=$!
+
+cd "${BASE_DIR}/benchmarks"
 ${CARGO_COMMAND} --bin dfbench >> /tmp/base_build.log 2>&1 &
 BASE_PID=$!
 

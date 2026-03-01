@@ -18,6 +18,11 @@ FROM rust:1-bookworm
 # toolchain to avoid rustup conflicts when switching minor versions.
 ENV RUSTUP_TOOLCHAIN=stable
 
+# Pull in the latest stable toolchain at image build time so runner scripts
+# are less likely to trigger a rustup update (which races when two cargo
+# processes start in parallel).
+RUN rustup update stable --no-self-update
+
 RUN apt-get update && apt-get install -y \
     git \
     cmake \
