@@ -146,8 +146,8 @@ export RUNNER_IMAGE="us-docker.pkg.dev/.../runner:latest"
 # Optional overrides (shown with defaults):
 export DATABASE_URL="sqlite:///data/benchmark.db"
 export WATCHED_REPOS="apache/datafusion:apache/arrow-rs"
-export POLL_INTERVAL_SECS=30
-export RECONCILE_INTERVAL_SECS=10
+export POLL_INTERVAL_SECS=2
+export RECONCILE_INTERVAL_SECS=3
 export K8S_NAMESPACE="benchmarking"
 export DEFAULT_CPU=30
 export DEFAULT_MEMORY="60Gi"

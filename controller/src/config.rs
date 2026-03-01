@@ -47,8 +47,8 @@ pub struct BenchmarkConfig {
 /// RUNNER_IMAGE              —                                    yes
 /// DATABASE_URL              sqlite:///data/benchmark.db           no
 /// BENCHMARK_CONFIG           —                                    yes (JSON)
-/// POLL_INTERVAL_SECS        5                                     no
-/// RECONCILE_INTERVAL_SECS   10                                    no
+/// POLL_INTERVAL_SECS        2                                     no
+/// RECONCILE_INTERVAL_SECS   3                                     no
 /// K8S_NAMESPACE             benchmarking                          no
 /// DEFAULT_CPU               12                                    no
 /// DEFAULT_MEMORY            65Gi                                  no
@@ -95,10 +95,10 @@ impl Config {
             database_url: env_or("DATABASE_URL", "sqlite:///data/benchmark.db"),
             benchmark_config: serde_json::from_str(&env_required("BENCHMARK_CONFIG")?)
                 .context("failed to parse BENCHMARK_CONFIG JSON")?,
-            poll_interval_secs: env_or("POLL_INTERVAL_SECS", "5")
+            poll_interval_secs: env_or("POLL_INTERVAL_SECS", "2")
                 .parse()
                 .context("POLL_INTERVAL_SECS")?,
-            reconcile_interval_secs: env_or("RECONCILE_INTERVAL_SECS", "10")
+            reconcile_interval_secs: env_or("RECONCILE_INTERVAL_SECS", "3")
                 .parse()
                 .context("RECONCILE_INTERVAL_SECS")?,
             k8s_namespace: env_or("K8S_NAMESPACE", "benchmarking"),
