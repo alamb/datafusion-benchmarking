@@ -384,7 +384,9 @@ mod tests {
         };
         let msg = format_queue_message("bob", "https://example.com/c/2", &[job]);
         assert!(msg.contains("| Comment |"));
-        assert!(msg.contains("[#100](https://github.com/apache/datafusion/pull/42#issuecomment-100)"));
+        assert!(
+            msg.contains("[#100](https://github.com/apache/datafusion/pull/42#issuecomment-100)")
+        );
         assert!(msg.contains("apache/datafusion"));
         assert!(msg.contains("#42"));
     }

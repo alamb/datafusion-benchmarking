@@ -159,9 +159,6 @@ mod tests {
 
     #[test]
     fn sanitize_multiple_slashes() {
-        assert_eq!(
-            sanitize_branch_name("user/feature/sub"),
-            "user_feature_sub"
-        );
+        assert_eq!(sanitize_branch_name("user/feature/sub"), "user_feature_sub");
     }
 }

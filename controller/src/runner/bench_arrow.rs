@@ -202,8 +202,11 @@ mod tests {
 
     #[test]
     fn result_comment_format() {
-        let comment =
-            format_result_comment("https://example.com/comment", "test report\n", "resources\n");
+        let comment = format_result_comment(
+            "https://example.com/comment",
+            "test report\n",
+            "resources\n",
+        );
         assert!(comment.contains("Arrow criterion benchmark completed"));
         assert!(comment.contains("[trigger](https://example.com/comment)"));
         assert!(comment.contains("test report"));

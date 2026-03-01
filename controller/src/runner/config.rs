@@ -55,7 +55,10 @@ impl RunnerConfig {
             pr_url,
             comment_id,
             comment_url,
-            benchmarks: env_or("BENCHMARKS", "tpch_mem clickbench_partitioned clickbench_extended"),
+            benchmarks: env_or(
+                "BENCHMARKS",
+                "tpch_mem clickbench_partitioned clickbench_extended",
+            ),
             bench_type: BenchType::from_str(&bench_type_str)?,
             bench_name: env_or("BENCH_NAME", "sql_planner"),
             bench_filter: env_or("BENCH_FILTER", ""),
@@ -105,7 +108,10 @@ mod tests {
 
     #[test]
     fn bench_type_standard() {
-        assert_eq!(BenchType::from_str("standard").unwrap(), BenchType::Standard);
+        assert_eq!(
+            BenchType::from_str("standard").unwrap(),
+            BenchType::Standard
+        );
     }
 
     #[test]

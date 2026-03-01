@@ -83,7 +83,9 @@ pub fn spawn_command(
             .with_context(|| format!("failed to spawn: {cmd} {}", args.join(" ")))?;
 
         if !status.success() {
-            let log_content = tokio::fs::read_to_string(&log_path).await.unwrap_or_default();
+            let log_content = tokio::fs::read_to_string(&log_path)
+                .await
+                .unwrap_or_default();
             append_to_log(&log_content).await;
             let code = status.code().unwrap_or(-1);
             anyhow::bail!(
