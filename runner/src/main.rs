@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use futures::TryStreamExt;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::{ObjectStore, PutPayload};
+use percent_encoding::percent_decode_str;
 
 #[derive(Parser)]
 #[command(name = "bench-cache", about = "Cache benchmark data in GCS")]
@@ -66,20 +67,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if meta.location == marker_path {
                     continue;
                 }
-                // Strip prefix to get relative path
-                let rel = meta
-                    .location
-                    .as_ref()
-                    .strip_prefix(prefix.as_ref())
-                    .unwrap_or(meta.location.as_ref())
-                    .trim_start_matches('/');
-                let local_path = data_dir.join(rel);
+                // Strip prefix to get relative path using prefix_match.
+                // Decode percent-encoded separators to handle both legacy
+                // (single-segment with %2F) and new (multi-segment) GCS keys.
+                let parts: Vec<_> = match meta.location.prefix_match(&prefix) {
+                    Some(suffix) => suffix.collect(),
+                    None => continue,
+                };
+                let joined: String = parts
+                    .iter()
+                    .map(|p| p.as_ref().to_string())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                let decoded = percent_decode_str(&joined).decode_utf8_lossy();
+                let rel = PathBuf::from(decoded.as_ref());
+                let local_path = data_dir.join(&rel);
                 if let Some(parent) = local_path.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
                 let bytes = store.get(&meta.location).await?.bytes().await?;
                 std::fs::write(&local_path, &bytes)?;
-                eprintln!("  downloaded: {rel}");
+                eprintln!("  downloaded: {}", rel.display());
             }
 
             eprintln!("Cache download complete for {benchmark}");
@@ -127,7 +135,12 @@ async fn upload_dir(
             Box::pin(upload_dir(store, prefix, base, &path)).await?;
         } else {
             let rel = path.strip_prefix(base)?;
-            let key = prefix.child(rel.to_string_lossy().as_ref());
+            // Build a proper multi-segment object path so that slashes
+            // in the relative path become real path separators in GCS
+            let mut key = prefix.clone();
+            for component in rel.components() {
+                key = key.child(component.as_os_str().to_string_lossy().as_ref());
+            }
             let data = std::fs::read(&path)?;
             store.put(&key, PutPayload::from(data)).await?;
             eprintln!("  uploaded: {}", rel.display());
