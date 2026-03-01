@@ -55,6 +55,7 @@ jobs:
                 restartPolicy: Never
                 nodeSelector:
                   cloud.google.com/compute-class: Performance
+                  cloud.google.com/machine-family: c4a
                   kubernetes.io/arch: arm64
                 tolerations:
                   - key: cloud.google.com/gke-spot

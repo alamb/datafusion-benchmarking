@@ -55,7 +55,7 @@ pub struct BenchmarkConfig {
 /// EPHEMERAL_STORAGE         128Gi                                 no
 /// ACTIVE_DEADLINE_SECS      7200                                  no
 /// TTL_AFTER_FINISHED_SECS   3600                                  no
-/// DEFAULT_ARCH              arm64                                 no
+/// DEFAULT_MACHINE_FAMILY    c4a                                   no
 /// STORAGE_CLASS             hyperdisk-balanced                    no
 /// ```
 #[derive(Debug, Clone)]
@@ -71,8 +71,8 @@ pub struct Config {
     pub default_memory: String,
     /// Ephemeral storage request for benchmark pods (e.g. `"128Gi"`).
     pub ephemeral_storage: String,
-    /// Default CPU architecture for benchmark pods (e.g. `"arm64"`).
-    pub default_arch: String,
+    /// Default GCE machine family for benchmark pods (`"c4a"` for ARM, `"c4"` for x86).
+    pub default_machine_family: String,
     /// Maximum wall-clock seconds a K8s Job may run before being killed.
     pub active_deadline_secs: i64,
     /// Seconds after completion before the K8s Job object is garbage-collected.
@@ -100,7 +100,7 @@ impl Config {
             default_cpu: env_or("DEFAULT_CPU", "12"),
             default_memory: env_or("DEFAULT_MEMORY", "65Gi"),
             ephemeral_storage: env_or("EPHEMERAL_STORAGE", "128Gi"),
-            default_arch: env_or("DEFAULT_ARCH", "arm64"),
+            default_machine_family: env_or("DEFAULT_MACHINE_FAMILY", "c4a"),
             active_deadline_secs: env_or("ACTIVE_DEADLINE_SECS", "3600")
                 .parse()
                 .context("ACTIVE_DEADLINE_SECS")?,

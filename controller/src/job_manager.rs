@@ -269,16 +269,20 @@ async fn create_k8s_job(
         Quantity(config.ephemeral_storage.clone()),
     );
 
+    // Map per-job cpu_arch (arm64/amd64) to a machine family, or use the config default.
+    let machine_family = match job.cpu_arch.as_deref() {
+        Some("arm64") => "c4a",
+        Some("amd64") | Some("x86_64") => "c4",
+        _ => &config.default_machine_family,
+    };
+    let arch = if machine_family == "c4a" { "arm64" } else { "amd64" };
+
     let mut node_selector = BTreeMap::new();
     node_selector.insert(
         "cloud.google.com/compute-class".to_string(),
         "Performance".to_string(),
     );
-
-    let arch = job
-        .cpu_arch
-        .as_deref()
-        .unwrap_or(&config.default_arch);
+    node_selector.insert("cloud.google.com/machine-family".to_string(), machine_family.to_string());
     node_selector.insert("kubernetes.io/arch".to_string(), arch.to_string());
 
     let k8s_job = Job {
