@@ -8,17 +8,29 @@ use std::collections::{HashMap, HashSet};
 
 use once_cell::sync::Lazy;
 use regex::Regex;
+use serde::Deserialize;
 
 use crate::config::RepoEntry;
 use crate::models::{BenchmarkRequest, JobType};
-
-static ENV_VAR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^[A-Z_][A-Z0-9_]*=[a-zA-Z0-9._\-]+$").unwrap());
 
 /// Unified trigger regex: matches `run benchmark(s) [name1 name2 ...]`.
 static TRIGGER_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)^\s*run\s+(benchmarks?)(?:\s+([a-zA-Z0-9_\-\s]+?))?\s*$").unwrap()
 });
+
+#[derive(Deserialize, Default)]
+struct CommentConfig {
+    env: Option<HashMap<String, String>>,
+    baseline: Option<SideConfig>,
+    changed: Option<SideConfig>,
+}
+
+#[derive(Deserialize, Default)]
+struct SideConfig {
+    #[serde(rename = "ref")]
+    git_ref: Option<String>,
+    env: Option<HashMap<String, String>>,
+}
 
 impl RepoEntry {
     /// Determine the [`JobType`] for a benchmark name, or `None` if not recognized.
@@ -37,29 +49,9 @@ impl RepoEntry {
     }
 }
 
-/// Parse a `KEY=VALUE` line into a (key, value) tuple.
-fn parse_env_var(line: &str) -> Option<(String, String)> {
-    let trimmed = line.trim();
-    if ENV_VAR_RE.is_match(trimmed) {
-        let (k, v) = trimmed.split_once('=')?;
-        Some((k.to_string(), v.to_string()))
-    } else {
-        None
-    }
-}
-
-/// Parser state machine for section-based comment syntax.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Section {
-    TopLevel,
-    TopLevelEnv,
-    Baseline,
-    BaselineEnv,
-    Changed,
-    ChangedEnv,
-}
-
 /// Parse the extra lines (after the trigger line) into structured env vars and refs.
+///
+/// Supports an optional ` ```yaml ` / ` ``` ` fence around the YAML content.
 fn parse_sections(
     lines: &[&str],
 ) -> (
@@ -69,81 +61,33 @@ fn parse_sections(
     Option<String>,
     Option<String>,
 ) {
-    let mut shared_env = HashMap::new();
-    let mut baseline_env = HashMap::new();
-    let mut changed_env = HashMap::new();
-    let mut baseline_ref = None;
-    let mut changed_ref = None;
-    let mut section = Section::TopLevel;
+    let yaml: String = lines
+        .iter()
+        .filter(|l| {
+            let t = l.trim();
+            !t.starts_with("```")
+        })
+        .copied()
+        .collect::<Vec<&str>>()
+        .join("\n");
+    let config: CommentConfig = match serde_yaml::from_str(&yaml) {
+        Ok(c) => c,
+        Err(_) => return Default::default(),
+    };
 
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let lower = trimmed.to_lowercase();
-
-        // Section headers
-        if lower == "baseline:" {
-            section = Section::Baseline;
-            continue;
-        }
-        if lower == "changed:" {
-            section = Section::Changed;
-            continue;
-        }
-        if lower == "env:" {
-            section = match section {
-                Section::TopLevel | Section::TopLevelEnv => Section::TopLevelEnv,
-                Section::Baseline | Section::BaselineEnv => Section::BaselineEnv,
-                Section::Changed | Section::ChangedEnv => Section::ChangedEnv,
-            };
-            continue;
-        }
-
-        // ref: <value> inside baseline/changed sections
-        if let Some(ref_val) = trimmed
-            .strip_prefix("ref:")
-            .or_else(|| trimmed.strip_prefix("ref :"))
-        {
-            let ref_val = ref_val.trim();
-            if !ref_val.is_empty() {
-                match section {
-                    Section::Baseline | Section::BaselineEnv => {
-                        baseline_ref = Some(ref_val.to_string());
-                    }
-                    Section::Changed | Section::ChangedEnv => {
-                        changed_ref = Some(ref_val.to_string());
-                    }
-                    _ => {} // ref at top level is ignored
-                }
-            }
-            continue;
-        }
-
-        // ENV_VAR=value lines
-        if let Some((k, v)) = parse_env_var(trimmed) {
-            match section {
-                Section::TopLevel | Section::TopLevelEnv => {
-                    shared_env.insert(k, v);
-                }
-                Section::BaselineEnv => {
-                    baseline_env.insert(k, v);
-                }
-                Section::ChangedEnv => {
-                    changed_env.insert(k, v);
-                }
-                // Bare KEY=VALUE inside baseline:/changed: without env: header — treat as per-side
-                Section::Baseline => {
-                    baseline_env.insert(k, v);
-                }
-                Section::Changed => {
-                    changed_env.insert(k, v);
-                }
-            }
-        }
-    }
+    let shared_env = config.env.unwrap_or_default();
+    let baseline_env = config
+        .baseline
+        .as_ref()
+        .and_then(|s| s.env.clone())
+        .unwrap_or_default();
+    let changed_env = config
+        .changed
+        .as_ref()
+        .and_then(|s| s.env.clone())
+        .unwrap_or_default();
+    let baseline_ref = config.baseline.as_ref().and_then(|s| s.git_ref.clone());
+    let changed_ref = config.changed.as_ref().and_then(|s| s.git_ref.clone());
 
     (
         shared_env,
@@ -332,16 +276,18 @@ pub fn supported_benchmarks_message(repo_entry: &RepoEntry, requested: &[String]
          Per-side configuration:\n\
          ```\n\
          run benchmark tpch\n\
+         ```yaml\n\
          env:\n\
-           SHARED_SETTING=enabled\n\
+           SHARED_SETTING: enabled\n\
          baseline:\n\
            ref: v45.0.0\n\
            env:\n\
-             DATAFUSION_RUNTIME_MEMORY_LIMIT=1G\n\
+             DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G\n\
          changed:\n\
            ref: v46.0.0\n\
            env:\n\
-             DATAFUSION_RUNTIME_MEMORY_LIMIT=2G\n\
+             DATAFUSION_RUNTIME_MEMORY_LIMIT: 2G\n\
+         ```\n\
          ```{unsupported}"
     )
 }
@@ -405,7 +351,7 @@ mod tests {
 
     #[test]
     fn detect_default_suite_with_env_vars() {
-        let body = "run benchmarks\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
+        let body = "run benchmarks\nenv:\n  DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
         assert!(req.benchmarks.is_empty());
         assert_eq!(
@@ -491,7 +437,7 @@ mod tests {
 
     #[test]
     fn parse_baseline_changed_env_vars() {
-        let body = "run benchmark tpch\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=2G";
+        let body = "run benchmark tpch\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT: 2G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
         assert_eq!(
             req.baseline_env_vars
@@ -518,7 +464,7 @@ mod tests {
 
     #[test]
     fn parse_both_refs_with_env() {
-        let body = "run benchmark tpch\nbaseline:\n  ref: v45.0.0\n  env:\n    FOO=old_value\nchanged:\n  ref: v46.0.0\n  env:\n    FOO=new_value";
+        let body = "run benchmark tpch\nbaseline:\n  ref: v45.0.0\n  env:\n    FOO: old_value\nchanged:\n  ref: v46.0.0\n  env:\n    FOO: new_value";
         let req = detect_benchmark(&df_entry(), body).unwrap();
         assert_eq!(req.baseline_ref.as_deref(), Some("v45.0.0"));
         assert_eq!(req.changed_ref.as_deref(), Some("v46.0.0"));
@@ -528,7 +474,7 @@ mod tests {
 
     #[test]
     fn parse_shared_plus_per_side() {
-        let body = "run benchmark tpch\nSHARED_SETTING=enabled\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=2G";
+        let body = "run benchmark tpch\nenv:\n  SHARED_SETTING: enabled\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT: 2G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
         assert_eq!(req.env_vars.get("SHARED_SETTING").unwrap(), "enabled");
         assert_eq!(
@@ -547,7 +493,7 @@ mod tests {
 
     #[test]
     fn parse_explicit_env_section() {
-        let body = "run benchmark tpch\nenv:\n  DATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
+        let body = "run benchmark tpch\nenv:\n  DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
         assert_eq!(
             req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(),
@@ -556,13 +502,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_backward_compat_bare_env() {
-        let body = "run benchmark tpch\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
+    fn parse_yaml_fenced_block() {
+        let body = "run benchmark tpch\n```yaml\nbaseline:\n  ref: v45.0.0\n  env:\n    FOO: bar\nchanged:\n  ref: v46.0.0\n```";
         let req = detect_benchmark(&df_entry(), body).unwrap();
-        assert_eq!(
-            req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(),
-            "1G"
-        );
+        assert_eq!(req.baseline_ref.as_deref(), Some("v45.0.0"));
+        assert_eq!(req.changed_ref.as_deref(), Some("v46.0.0"));
+        assert_eq!(req.baseline_env_vars.get("FOO").unwrap(), "bar");
     }
 
     // ── is_benchmark_trigger ────────────────────────────────────────
@@ -673,31 +618,5 @@ mod tests {
         let pos_a = md.find("[alamb]").unwrap();
         let pos_z = md.find("[zhuqi-lucas]").unwrap();
         assert!(pos_a < pos_z);
-    }
-
-    // ── parse_env_var ──────────────────────────────────────────────
-
-    #[test]
-    fn parse_env_simple() {
-        let (k, v) = parse_env_var("FOO=bar").unwrap();
-        assert_eq!(k, "FOO");
-        assert_eq!(v, "bar");
-    }
-
-    #[test]
-    fn parse_env_dots_hyphens() {
-        let (k, v) = parse_env_var("FOO=bar.baz-1").unwrap();
-        assert_eq!(k, "FOO");
-        assert_eq!(v, "bar.baz-1");
-    }
-
-    #[test]
-    fn parse_env_lowercase_key_rejected() {
-        assert!(parse_env_var("foo=bar").is_none());
-    }
-
-    #[test]
-    fn parse_env_space_in_value_rejected() {
-        assert!(parse_env_var("FOO=bar baz").is_none());
     }
 }
