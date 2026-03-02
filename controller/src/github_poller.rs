@@ -193,9 +193,7 @@ async fn process_comment(
                         "Hi @{login}, `run benchmark` requires benchmark names ({comment_url}).\n\n"
                     )
                 } else {
-                    format!(
-                        "Hi @{login}, thanks for the request ({comment_url}).\n\n"
-                    )
+                    format!("Hi @{login}, thanks for the request ({comment_url}).\n\n")
                 };
                 let msg = format!(
                     "{prefix}{}",

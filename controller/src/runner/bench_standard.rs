@@ -73,10 +73,7 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     let pr_number = config.pr_number()?;
 
     // Resolve display names for the comparison
-    let changed_display = config
-        .changed_ref
-        .as_deref()
-        .unwrap_or(&branch_name);
+    let changed_display = config.changed_ref.as_deref().unwrap_or(&branch_name);
     let changed_sha = git::rev_parse_head(&branch_dir).await?;
     let base_sha = git::rev_parse_head(&base_dir).await?;
     let baseline_label = if config.baseline_ref.is_some() {
@@ -143,30 +140,32 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
         let base_dir_str = base_dir.to_string_lossy().to_string();
         let mut base_args: Vec<String> = vec![format!("DATAFUSION_DIR={base_dir_str}")];
         base_args.extend(baseline_extra_env.iter().cloned());
-        base_args.extend(["./bench.sh".to_string(), "run".to_string(), bench.to_string()]);
+        base_args.extend([
+            "./bench.sh".to_string(),
+            "run".to_string(),
+            bench.to_string(),
+        ]);
         let base_args_ref: Vec<&str> = base_args.iter().map(|s| s.as_str()).collect();
-        let (_, base_stats) = shell::run_command_monitored(
-            "env",
-            &base_args_ref,
-            &bench_benchmarks,
-        )
-        .await
-        .with_context(|| format!("bench.sh run {bench} (base)"))?;
+        let (_, base_stats) =
+            shell::run_command_monitored("env", &base_args_ref, &bench_benchmarks)
+                .await
+                .with_context(|| format!("bench.sh run {bench} (base)"))?;
         base_stats_list.push((bench, base_stats));
 
         info!("** Running {bench} branch **");
         let branch_dir_str = branch_dir.to_string_lossy().to_string();
         let mut branch_args: Vec<String> = vec![format!("DATAFUSION_DIR={branch_dir_str}")];
         branch_args.extend(changed_extra_env.iter().cloned());
-        branch_args.extend(["./bench.sh".to_string(), "run".to_string(), bench.to_string()]);
+        branch_args.extend([
+            "./bench.sh".to_string(),
+            "run".to_string(),
+            bench.to_string(),
+        ]);
         let branch_args_ref: Vec<&str> = branch_args.iter().map(|s| s.as_str()).collect();
-        let (_, branch_stats) = shell::run_command_monitored(
-            "env",
-            &branch_args_ref,
-            &bench_benchmarks,
-        )
-        .await
-        .with_context(|| format!("bench.sh run {bench} (branch)"))?;
+        let (_, branch_stats) =
+            shell::run_command_monitored("env", &branch_args_ref, &bench_benchmarks)
+                .await
+                .with_context(|| format!("bench.sh run {bench} (branch)"))?;
         branch_stats_list.push((bench, branch_stats));
     }
 

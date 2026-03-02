@@ -225,7 +225,10 @@ async fn create_k8s_job(
             // Legacy format: JSON array of "KEY=VALUE" strings
             let arr: Vec<String> = serde_json::from_str(&job.env_vars)?;
             arr.iter()
-                .filter_map(|s| s.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+                .filter_map(|s| {
+                    s.split_once('=')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                })
                 .collect()
         } else {
             serde_json::from_str(&job.env_vars)?

@@ -103,7 +103,10 @@ fn parse_sections(
         }
 
         // ref: <value> inside baseline/changed sections
-        if let Some(ref_val) = trimmed.strip_prefix("ref:").or_else(|| trimmed.strip_prefix("ref :")) {
+        if let Some(ref_val) = trimmed
+            .strip_prefix("ref:")
+            .or_else(|| trimmed.strip_prefix("ref :"))
+        {
             let ref_val = ref_val.trim();
             if !ref_val.is_empty() {
                 match section {
@@ -142,7 +145,13 @@ fn parse_sections(
         }
     }
 
-    (shared_env, baseline_env, changed_env, baseline_ref, changed_ref)
+    (
+        shared_env,
+        baseline_env,
+        changed_env,
+        baseline_ref,
+        changed_ref,
+    )
 }
 
 /// Result of parsing the trigger line.
@@ -206,8 +215,7 @@ pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> Option<BenchmarkR
 
     let trigger_kind = parse_trigger(trigger)?;
 
-    let (shared_env, baseline_env, changed_env, baseline_ref, changed_ref) =
-        parse_sections(extra);
+    let (shared_env, baseline_env, changed_env, baseline_ref, changed_ref) = parse_sections(extra);
 
     match trigger_kind {
         TriggerKind::DefaultSuite => Some(BenchmarkRequest {
@@ -258,7 +266,10 @@ pub fn is_benchmark_trigger(body: &str) -> bool {
 /// Returns `true` if `run benchmark` (singular) was used without benchmark names.
 pub fn is_singular_no_names(body: &str) -> bool {
     let first_line = body.trim().lines().next().unwrap_or("");
-    matches!(parse_trigger(first_line), Some(TriggerKind::SingularNoNames))
+    matches!(
+        parse_trigger(first_line),
+        Some(TriggerKind::SingularNoNames)
+    )
 }
 
 /// Returns `true` if the comment body is exactly "show benchmark queue" (case-insensitive).
@@ -397,7 +408,10 @@ mod tests {
         let body = "run benchmarks\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
         assert!(req.benchmarks.is_empty());
-        assert_eq!(req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
+        assert_eq!(
+            req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(),
+            "1G"
+        );
     }
 
     #[test]
@@ -479,8 +493,18 @@ mod tests {
     fn parse_baseline_changed_env_vars() {
         let body = "run benchmark tpch\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=2G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
-        assert_eq!(req.baseline_env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
-        assert_eq!(req.changed_env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "2G");
+        assert_eq!(
+            req.baseline_env_vars
+                .get("DATAFUSION_RUNTIME_MEMORY_LIMIT")
+                .unwrap(),
+            "1G"
+        );
+        assert_eq!(
+            req.changed_env_vars
+                .get("DATAFUSION_RUNTIME_MEMORY_LIMIT")
+                .unwrap(),
+            "2G"
+        );
         assert!(req.env_vars.is_empty());
     }
 
@@ -507,22 +531,38 @@ mod tests {
         let body = "run benchmark tpch\nSHARED_SETTING=enabled\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=2G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
         assert_eq!(req.env_vars.get("SHARED_SETTING").unwrap(), "enabled");
-        assert_eq!(req.baseline_env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
-        assert_eq!(req.changed_env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "2G");
+        assert_eq!(
+            req.baseline_env_vars
+                .get("DATAFUSION_RUNTIME_MEMORY_LIMIT")
+                .unwrap(),
+            "1G"
+        );
+        assert_eq!(
+            req.changed_env_vars
+                .get("DATAFUSION_RUNTIME_MEMORY_LIMIT")
+                .unwrap(),
+            "2G"
+        );
     }
 
     #[test]
     fn parse_explicit_env_section() {
         let body = "run benchmark tpch\nenv:\n  DATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
-        assert_eq!(req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
+        assert_eq!(
+            req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(),
+            "1G"
+        );
     }
 
     #[test]
     fn parse_backward_compat_bare_env() {
         let body = "run benchmark tpch\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
-        assert_eq!(req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
+        assert_eq!(
+            req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(),
+            "1G"
+        );
     }
 
     // ── is_benchmark_trigger ────────────────────────────────────────

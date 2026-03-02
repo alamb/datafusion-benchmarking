@@ -57,16 +57,14 @@ impl RunnerConfig {
         let comment_url = format!("{pr_url}#issuecomment-{comment_id}");
         let bench_type_str = env_required("BENCH_TYPE")?;
 
-        let baseline_env_vars: HashMap<String, String> =
-            std::env::var("BASELINE_ENV_VARS")
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default();
-        let changed_env_vars: HashMap<String, String> =
-            std::env::var("CHANGED_ENV_VARS")
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default();
+        let baseline_env_vars: HashMap<String, String> = std::env::var("BASELINE_ENV_VARS")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let changed_env_vars: HashMap<String, String> = std::env::var("CHANGED_ENV_VARS")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
 
         Ok(Self {
             pr_url,
