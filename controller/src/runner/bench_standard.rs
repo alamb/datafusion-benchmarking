@@ -25,12 +25,27 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     git::clone_shallow(&repo_url, &branch_dir, 200).await?;
     let branch_name = git::checkout_pr(&config.pr_url, &branch_dir).await?;
     let merge_base = git::merge_base(&branch_dir).await?;
-    let branch_base = git::rev_parse_head(&branch_dir).await?;
 
-    // Clone and checkout merge-base
+    // If a custom changed ref is specified, checkout that instead of PR head
+    if let Some(ref changed_ref) = config.changed_ref {
+        info!(changed_ref, "=== Checking out custom changed ref ===");
+        git::fetch_origin(&branch_dir).await?;
+        git::checkout(&branch_dir, changed_ref).await?;
+    }
+
+    // Determine baseline: custom ref or merge-base
+    let baseline_display: String;
     info!("=== Cloning merge-base ===");
     git::clone_shallow(&repo_url, &base_dir, 200).await?;
-    git::checkout(&base_dir, &merge_base).await?;
+    if let Some(ref baseline_ref) = config.baseline_ref {
+        info!(baseline_ref, "=== Checking out custom baseline ref ===");
+        git::fetch_origin(&base_dir).await?;
+        git::checkout(&base_dir, baseline_ref).await?;
+        baseline_display = baseline_ref.clone();
+    } else {
+        git::checkout(&base_dir, &merge_base).await?;
+        baseline_display = merge_base.clone();
+    }
 
     // Pre-install stable toolchain to avoid rustup race in parallel builds
     git::rustup_stable().await?;
@@ -56,11 +71,25 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     // Post "running" comment
     let uname = shell::uname().await;
     let pr_number = config.pr_number()?;
+
+    // Resolve display names for the comparison
+    let changed_display = config
+        .changed_ref
+        .as_deref()
+        .unwrap_or(&branch_name);
+    let changed_sha = git::rev_parse_head(&branch_dir).await?;
+    let base_sha = git::rev_parse_head(&base_dir).await?;
+    let baseline_label = if config.baseline_ref.is_some() {
+        baseline_display.clone()
+    } else {
+        format!("{} (merge-base)", &base_sha[..7.min(base_sha.len())])
+    };
+
     let running_body = format!(
         "\u{1f916} Benchmark running (GKE) | [trigger]({})\n\
          `{uname}`\n\
-         Comparing {branch_name} ({branch_base}) to {merge_base} \
-         [diff](https://github.com/{repo}/compare/{merge_base}..{branch_base}) \
+         Comparing {changed_display} ({changed_sha}) to {baseline_label} \
+         [diff](https://github.com/{repo}/compare/{base_sha}..{changed_sha}) \
          using: {benchmarks}\n\
          Results will be posted here when complete",
         config.comment_url,
@@ -103,20 +132,22 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
 
     let bench_dir_str = bench_benchmarks.to_string_lossy().to_string();
 
+    let baseline_extra_env = config.baseline_env_args();
+    let changed_extra_env = config.changed_env_args();
+
     for bench in benchmarks.split_whitespace() {
         info!("** Creating data if needed for {bench} **");
         cache_data(bench, &bench_dir_str).await;
 
-        info!("** Running {bench} baseline (merge-base) **");
+        info!("** Running {bench} baseline **");
         let base_dir_str = base_dir.to_string_lossy().to_string();
+        let mut base_args: Vec<String> = vec![format!("DATAFUSION_DIR={base_dir_str}")];
+        base_args.extend(baseline_extra_env.iter().cloned());
+        base_args.extend(["./bench.sh".to_string(), "run".to_string(), bench.to_string()]);
+        let base_args_ref: Vec<&str> = base_args.iter().map(|s| s.as_str()).collect();
         let (_, base_stats) = shell::run_command_monitored(
             "env",
-            &[
-                &format!("DATAFUSION_DIR={base_dir_str}"),
-                "./bench.sh",
-                "run",
-                bench,
-            ],
+            &base_args_ref,
             &bench_benchmarks,
         )
         .await
@@ -125,14 +156,13 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
 
         info!("** Running {bench} branch **");
         let branch_dir_str = branch_dir.to_string_lossy().to_string();
+        let mut branch_args: Vec<String> = vec![format!("DATAFUSION_DIR={branch_dir_str}")];
+        branch_args.extend(changed_extra_env.iter().cloned());
+        branch_args.extend(["./bench.sh".to_string(), "run".to_string(), bench.to_string()]);
+        let branch_args_ref: Vec<&str> = branch_args.iter().map(|s| s.as_str()).collect();
         let (_, branch_stats) = shell::run_command_monitored(
             "env",
-            &[
-                &format!("DATAFUSION_DIR={branch_dir_str}"),
-                "./bench.sh",
-                "run",
-                bench,
-            ],
+            &branch_args_ref,
             &bench_benchmarks,
         )
         .await

@@ -4,7 +4,7 @@
 //! benchmark names against repo-specific allowlists, and classifies them by
 //! [`JobType`].
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -15,11 +15,10 @@ use crate::models::{BenchmarkRequest, JobType};
 static ENV_VAR_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[A-Z_][A-Z0-9_]*=[a-zA-Z0-9._\-]+$").unwrap());
 
-static TRIGGER_DEFAULT_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^\s*run\s+benchmarks\s*$").unwrap());
-
-static TRIGGER_NAMED_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^\s*run\s+benchmark\s+([a-zA-Z0-9_\-\s]+?)\s*$").unwrap());
+/// Unified trigger regex: matches `run benchmark(s) [name1 name2 ...]`.
+static TRIGGER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^\s*run\s+(benchmarks?)(?:\s+([a-zA-Z0-9_\-\s]+?))?\s*$").unwrap()
+});
 
 impl RepoEntry {
     /// Determine the [`JobType`] for a benchmark name, or `None` if not recognized.
@@ -38,20 +37,164 @@ impl RepoEntry {
     }
 }
 
-/// Extract `KEY=value` lines that match `^[A-Z_][A-Z0-9_]*=[a-zA-Z0-9._-]+$`.
-fn parse_env_vars(lines: &[&str]) -> Vec<String> {
-    lines
-        .iter()
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty() && ENV_VAR_RE.is_match(l))
-        .map(|l| l.to_string())
-        .collect()
+/// Parse a `KEY=VALUE` line into a (key, value) tuple.
+fn parse_env_var(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if ENV_VAR_RE.is_match(trimmed) {
+        let (k, v) = trimmed.split_once('=')?;
+        Some((k.to_string(), v.to_string()))
+    } else {
+        None
+    }
+}
+
+/// Parser state machine for section-based comment syntax.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Section {
+    TopLevel,
+    TopLevelEnv,
+    Baseline,
+    BaselineEnv,
+    Changed,
+    ChangedEnv,
+}
+
+/// Parse the extra lines (after the trigger line) into structured env vars and refs.
+fn parse_sections(
+    lines: &[&str],
+) -> (
+    HashMap<String, String>,
+    HashMap<String, String>,
+    HashMap<String, String>,
+    Option<String>,
+    Option<String>,
+) {
+    let mut shared_env = HashMap::new();
+    let mut baseline_env = HashMap::new();
+    let mut changed_env = HashMap::new();
+    let mut baseline_ref = None;
+    let mut changed_ref = None;
+    let mut section = Section::TopLevel;
+
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let lower = trimmed.to_lowercase();
+
+        // Section headers
+        if lower == "baseline:" {
+            section = Section::Baseline;
+            continue;
+        }
+        if lower == "changed:" {
+            section = Section::Changed;
+            continue;
+        }
+        if lower == "env:" {
+            section = match section {
+                Section::TopLevel | Section::TopLevelEnv => Section::TopLevelEnv,
+                Section::Baseline | Section::BaselineEnv => Section::BaselineEnv,
+                Section::Changed | Section::ChangedEnv => Section::ChangedEnv,
+            };
+            continue;
+        }
+
+        // ref: <value> inside baseline/changed sections
+        if let Some(ref_val) = trimmed.strip_prefix("ref:").or_else(|| trimmed.strip_prefix("ref :")) {
+            let ref_val = ref_val.trim();
+            if !ref_val.is_empty() {
+                match section {
+                    Section::Baseline | Section::BaselineEnv => {
+                        baseline_ref = Some(ref_val.to_string());
+                    }
+                    Section::Changed | Section::ChangedEnv => {
+                        changed_ref = Some(ref_val.to_string());
+                    }
+                    _ => {} // ref at top level is ignored
+                }
+            }
+            continue;
+        }
+
+        // ENV_VAR=value lines
+        if let Some((k, v)) = parse_env_var(trimmed) {
+            match section {
+                Section::TopLevel | Section::TopLevelEnv => {
+                    shared_env.insert(k, v);
+                }
+                Section::BaselineEnv => {
+                    baseline_env.insert(k, v);
+                }
+                Section::ChangedEnv => {
+                    changed_env.insert(k, v);
+                }
+                // Bare KEY=VALUE inside baseline:/changed: without env: header — treat as per-side
+                Section::Baseline => {
+                    baseline_env.insert(k, v);
+                }
+                Section::Changed => {
+                    changed_env.insert(k, v);
+                }
+            }
+        }
+    }
+
+    (shared_env, baseline_env, changed_env, baseline_ref, changed_ref)
+}
+
+/// Result of parsing the trigger line.
+pub enum TriggerKind {
+    /// Specific benchmark names were given.
+    Named(Vec<String>),
+    /// `run benchmarks` (plural) with no names → default suite.
+    DefaultSuite,
+    /// `run benchmark` (singular) with no names → error.
+    SingularNoNames,
+}
+
+/// Parse the trigger line. Returns `None` if it doesn't match the trigger pattern at all.
+pub fn parse_trigger(trigger: &str) -> Option<TriggerKind> {
+    let caps = TRIGGER_RE.captures(trigger)?;
+    let word = caps.get(1).unwrap().as_str(); // "benchmark" or "benchmarks"
+    let is_plural = word.to_lowercase().ends_with('s');
+
+    match caps.get(2) {
+        Some(names_match) => {
+            let names: Vec<String> = names_match
+                .as_str()
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect();
+            if names.is_empty() {
+                if is_plural {
+                    Some(TriggerKind::DefaultSuite)
+                } else {
+                    Some(TriggerKind::SingularNoNames)
+                }
+            } else {
+                Some(TriggerKind::Named(names))
+            }
+        }
+        None => {
+            if is_plural {
+                Some(TriggerKind::DefaultSuite)
+            } else {
+                Some(TriggerKind::SingularNoNames)
+            }
+        }
+    }
 }
 
 /// Parse a PR comment body into a [`BenchmarkRequest`] if it matches a trigger pattern.
 ///
-/// Recognizes `run benchmarks` (default suite) and `run benchmark <name> [<name>...]`.
-/// Extra lines after the trigger are scanned for environment variable overrides.
+/// Recognizes `run benchmarks` (default suite), `run benchmarks <names>`, and
+/// `run benchmark <names>`. `run benchmark` without names returns `None` (caller
+/// should post a help message).
+///
+/// Supports `baseline:`/`changed:` sections with `env:` and `ref:` sub-entries.
 pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> Option<BenchmarkRequest> {
     let lines: Vec<&str> = body.trim().lines().collect();
     if lines.is_empty() {
@@ -61,33 +204,46 @@ pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> Option<BenchmarkR
     let trigger = lines[0];
     let extra = &lines[1..];
 
-    if TRIGGER_DEFAULT_RE.is_match(trigger) {
-        return Some(BenchmarkRequest {
+    let trigger_kind = parse_trigger(trigger)?;
+
+    let (shared_env, baseline_env, changed_env, baseline_ref, changed_ref) =
+        parse_sections(extra);
+
+    match trigger_kind {
+        TriggerKind::DefaultSuite => Some(BenchmarkRequest {
             benchmarks: vec![],
-            env_vars: parse_env_vars(extra),
-        });
-    }
+            env_vars: shared_env,
+            baseline_env_vars: baseline_env,
+            changed_env_vars: changed_env,
+            baseline_ref,
+            changed_ref,
+        }),
+        TriggerKind::Named(names) => {
+            if names.is_empty() {
+                return None;
+            }
 
-    let caps = TRIGGER_NAMED_RE.captures(trigger)?;
-    let names: Vec<String> = caps[1].split_whitespace().map(|s| s.to_string()).collect();
-    if names.is_empty() {
-        return None;
-    }
+            let standard = repo_entry.standard_set();
+            let criterion = repo_entry.criterion_set();
 
-    let standard = repo_entry.standard_set();
-    let criterion = repo_entry.criterion_set();
+            let all_valid = names
+                .iter()
+                .all(|n| standard.contains(n.as_str()) || criterion.contains(n.as_str()));
 
-    let all_valid = names
-        .iter()
-        .all(|n| standard.contains(n.as_str()) || criterion.contains(n.as_str()));
-
-    if all_valid {
-        Some(BenchmarkRequest {
-            benchmarks: names,
-            env_vars: parse_env_vars(extra),
-        })
-    } else {
-        None
+            if all_valid {
+                Some(BenchmarkRequest {
+                    benchmarks: names,
+                    env_vars: shared_env,
+                    baseline_env_vars: baseline_env,
+                    changed_env_vars: changed_env,
+                    baseline_ref,
+                    changed_ref,
+                })
+            } else {
+                None
+            }
+        }
+        TriggerKind::SingularNoNames => None,
     }
 }
 
@@ -97,6 +253,12 @@ pub fn is_benchmark_trigger(body: &str) -> bool {
     let first_line = body.trim().lines().next().unwrap_or("");
     let lower = first_line.trim().to_lowercase();
     lower.starts_with("run benchmark")
+}
+
+/// Returns `true` if `run benchmark` (singular) was used without benchmark names.
+pub fn is_singular_no_names(body: &str) -> bool {
+    let first_line = body.trim().lines().next().unwrap_or("");
+    matches!(parse_trigger(first_line), Some(TriggerKind::SingularNoNames))
 }
 
 /// Returns `true` if the comment body is exactly "show benchmark queue" (case-insensitive).
@@ -150,9 +312,26 @@ pub fn supported_benchmarks_message(repo_entry: &RepoEntry, requested: &[String]
 
     format!(
         "Supported benchmarks:\n- Standard: {standard_str}\n- Criterion: {criterion_str}\n\n\
-         Please choose with `run benchmark <name>` or `run benchmark <name1> <name2>...`\n\n\
-         You can also set environment variables on subsequent lines:\n\
-         ```\nrun benchmark tpch_mem\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G\n```{unsupported}"
+         Usage:\n\
+         ```\n\
+         run benchmark <name>           # run specific benchmark(s)\n\
+         run benchmarks                 # run default suite\n\
+         run benchmarks <name1> <name2> # run specific benchmarks\n\
+         ```\n\n\
+         Per-side configuration:\n\
+         ```\n\
+         run benchmark tpch\n\
+         env:\n\
+           SHARED_SETTING=enabled\n\
+         baseline:\n\
+           ref: v45.0.0\n\
+           env:\n\
+             DATAFUSION_RUNTIME_MEMORY_LIMIT=1G\n\
+         changed:\n\
+           ref: v46.0.0\n\
+           env:\n\
+             DATAFUSION_RUNTIME_MEMORY_LIMIT=2G\n\
+         ```{unsupported}"
     )
 }
 
@@ -218,7 +397,7 @@ mod tests {
         let body = "run benchmarks\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
         let req = detect_benchmark(&df_entry(), body).unwrap();
         assert!(req.benchmarks.is_empty());
-        assert_eq!(req.env_vars, vec!["DATAFUSION_RUNTIME_MEMORY_LIMIT=1G"]);
+        assert_eq!(req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
     }
 
     #[test]
@@ -269,6 +448,81 @@ mod tests {
     fn detect_arrow_criterion() {
         let req = detect_benchmark(&arrow_entry(), "run benchmark arrow_reader").unwrap();
         assert_eq!(req.benchmarks, vec!["arrow_reader"]);
+    }
+
+    // ── plural trigger with names (new) ─────────────────────────────
+
+    #[test]
+    fn detect_plural_with_names() {
+        let req = detect_benchmark(&df_entry(), "run benchmarks tpch clickbench_1").unwrap();
+        assert_eq!(req.benchmarks, vec!["tpch", "clickbench_1"]);
+    }
+
+    // ── singular without names returns None ─────────────────────────
+
+    #[test]
+    fn detect_singular_no_names_returns_none() {
+        assert!(detect_benchmark(&df_entry(), "run benchmark").is_none());
+    }
+
+    #[test]
+    fn is_singular_no_names_detects() {
+        assert!(is_singular_no_names("run benchmark"));
+        assert!(is_singular_no_names("  run benchmark  "));
+        assert!(!is_singular_no_names("run benchmarks"));
+        assert!(!is_singular_no_names("run benchmark tpch"));
+    }
+
+    // ── section parsing ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_baseline_changed_env_vars() {
+        let body = "run benchmark tpch\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=2G";
+        let req = detect_benchmark(&df_entry(), body).unwrap();
+        assert_eq!(req.baseline_env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
+        assert_eq!(req.changed_env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "2G");
+        assert!(req.env_vars.is_empty());
+    }
+
+    #[test]
+    fn parse_baseline_ref() {
+        let body = "run benchmarks tpch clickbench_1\nbaseline:\n  ref: abc1234def";
+        let req = detect_benchmark(&df_entry(), body).unwrap();
+        assert_eq!(req.baseline_ref.as_deref(), Some("abc1234def"));
+        assert!(req.changed_ref.is_none());
+    }
+
+    #[test]
+    fn parse_both_refs_with_env() {
+        let body = "run benchmark tpch\nbaseline:\n  ref: v45.0.0\n  env:\n    FOO=old_value\nchanged:\n  ref: v46.0.0\n  env:\n    FOO=new_value";
+        let req = detect_benchmark(&df_entry(), body).unwrap();
+        assert_eq!(req.baseline_ref.as_deref(), Some("v45.0.0"));
+        assert_eq!(req.changed_ref.as_deref(), Some("v46.0.0"));
+        assert_eq!(req.baseline_env_vars.get("FOO").unwrap(), "old_value");
+        assert_eq!(req.changed_env_vars.get("FOO").unwrap(), "new_value");
+    }
+
+    #[test]
+    fn parse_shared_plus_per_side() {
+        let body = "run benchmark tpch\nSHARED_SETTING=enabled\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT=2G";
+        let req = detect_benchmark(&df_entry(), body).unwrap();
+        assert_eq!(req.env_vars.get("SHARED_SETTING").unwrap(), "enabled");
+        assert_eq!(req.baseline_env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
+        assert_eq!(req.changed_env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "2G");
+    }
+
+    #[test]
+    fn parse_explicit_env_section() {
+        let body = "run benchmark tpch\nenv:\n  DATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
+        let req = detect_benchmark(&df_entry(), body).unwrap();
+        assert_eq!(req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
+    }
+
+    #[test]
+    fn parse_backward_compat_bare_env() {
+        let body = "run benchmark tpch\nDATAFUSION_RUNTIME_MEMORY_LIMIT=1G";
+        let req = detect_benchmark(&df_entry(), body).unwrap();
+        assert_eq!(req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(), "1G");
     }
 
     // ── is_benchmark_trigger ────────────────────────────────────────
@@ -381,31 +635,29 @@ mod tests {
         assert!(pos_a < pos_z);
     }
 
-    // ── parse_env_vars ──────────────────────────────────────────────
+    // ── parse_env_var ──────────────────────────────────────────────
 
     #[test]
     fn parse_env_simple() {
-        assert_eq!(parse_env_vars(&["FOO=bar"]), vec!["FOO=bar"]);
+        let (k, v) = parse_env_var("FOO=bar").unwrap();
+        assert_eq!(k, "FOO");
+        assert_eq!(v, "bar");
     }
 
     #[test]
     fn parse_env_dots_hyphens() {
-        assert_eq!(parse_env_vars(&["FOO=bar.baz-1"]), vec!["FOO=bar.baz-1"]);
+        let (k, v) = parse_env_var("FOO=bar.baz-1").unwrap();
+        assert_eq!(k, "FOO");
+        assert_eq!(v, "bar.baz-1");
     }
 
     #[test]
     fn parse_env_lowercase_key_rejected() {
-        assert!(parse_env_vars(&["foo=bar"]).is_empty());
+        assert!(parse_env_var("foo=bar").is_none());
     }
 
     #[test]
     fn parse_env_space_in_value_rejected() {
-        assert!(parse_env_vars(&["FOO=bar baz"]).is_empty());
-    }
-
-    #[test]
-    fn parse_env_filters_blanks() {
-        let result = parse_env_vars(&["", "  ", "FOO=bar"]);
-        assert_eq!(result, vec!["FOO=bar"]);
+        assert!(parse_env_var("FOO=bar baz").is_none());
     }
 }

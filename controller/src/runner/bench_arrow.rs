@@ -27,14 +27,29 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     let branch_name = git::checkout_pr(&config.pr_url, &branch_dir).await?;
     git::submodule_update(&branch_dir).await?;
     let merge_base = git::merge_base(&branch_dir).await?;
-    let branch_base = git::rev_parse_head(&branch_dir).await?;
     let bench_branch_name = git::sanitize_branch_name(&branch_name);
     git::cargo_update(&branch_dir).await?;
 
-    // Clone and checkout merge-base
+    // If a custom changed ref is specified, checkout that instead of PR head
+    if let Some(ref changed_ref) = config.changed_ref {
+        info!(changed_ref, "=== Checking out custom changed ref ===");
+        git::fetch_origin(&branch_dir).await?;
+        git::checkout(&branch_dir, changed_ref).await?;
+    }
+
+    // Determine baseline: custom ref or merge-base
+    let baseline_display: String;
     info!("=== Cloning merge-base ===");
     git::clone_shallow(&repo_url, &base_dir, 200).await?;
-    git::checkout(&base_dir, &merge_base).await?;
+    if let Some(ref baseline_ref) = config.baseline_ref {
+        info!(baseline_ref, "=== Checking out custom baseline ref ===");
+        git::fetch_origin(&base_dir).await?;
+        git::checkout(&base_dir, baseline_ref).await?;
+        baseline_display = baseline_ref.clone();
+    } else {
+        git::checkout(&base_dir, &merge_base).await?;
+        baseline_display = merge_base.clone();
+    }
     git::submodule_update(&base_dir).await?;
     git::cargo_update(&base_dir).await?;
 
@@ -46,11 +61,19 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     let bench_command_display = format!(
         "cargo bench --features=arrow,async,test_common,experimental,object_store --bench {bench_name}"
     );
+    let changed_display = config.changed_ref.as_deref().unwrap_or(&branch_name);
+    let changed_sha = git::rev_parse_head(&branch_dir).await?;
+    let base_sha = git::rev_parse_head(&base_dir).await?;
+    let baseline_label = if config.baseline_ref.is_some() {
+        baseline_display.clone()
+    } else {
+        format!("{} (merge-base)", &base_sha[..7.min(base_sha.len())])
+    };
     let running_body = format!(
         "\u{1f916} Arrow criterion benchmark running (GKE) | [trigger]({})\n\
          `{uname}`\n\
-         Comparing {branch_name} ({branch_base}) to {merge_base} \
-         [diff](https://github.com/{repo}/compare/{merge_base}..{branch_base})\n\
+         Comparing {changed_display} ({changed_sha}) to {baseline_label} \
+         [diff](https://github.com/{repo}/compare/{base_sha}..{changed_sha})\n\
          BENCH_NAME={bench_name}\n\
          BENCH_COMMAND={bench_command_display}\n\
          BENCH_FILTER={bench_filter}\n\
@@ -92,15 +115,22 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
         .context("base build failed")?;
     info!("=== Compilation complete ===");
 
-    // Run benchmarks sequentially
+    // Run benchmarks sequentially, applying per-side env vars via `env` wrapper
     info!("=== Running benchmark on merge-base ===");
     let mut base_run_args = bench_command_args.clone();
     base_run_args.extend(["--", "--save-baseline", "main"].map(String::from));
     if !bench_filter.is_empty() {
         base_run_args.push(bench_filter.clone());
     }
-    let (_, base_stats) =
-        shell::run_command_monitored("cargo", &str_slice(&base_run_args), &base_dir).await?;
+    let baseline_extra_env = config.baseline_env_args();
+    let (_, base_stats) = if baseline_extra_env.is_empty() {
+        shell::run_command_monitored("cargo", &str_slice(&base_run_args), &base_dir).await?
+    } else {
+        let mut env_args: Vec<String> = baseline_extra_env;
+        env_args.push("cargo".to_string());
+        env_args.extend(base_run_args);
+        shell::run_command_monitored("env", &str_slice(&env_args), &base_dir).await?
+    };
 
     info!("=== Running benchmark on PR branch ===");
     let mut branch_run_args = bench_command_args.clone();
@@ -109,8 +139,15 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     if !bench_filter.is_empty() {
         branch_run_args.push(bench_filter.clone());
     }
-    let (_, branch_stats) =
-        shell::run_command_monitored("cargo", &str_slice(&branch_run_args), &branch_dir).await?;
+    let changed_extra_env = config.changed_env_args();
+    let (_, branch_stats) = if changed_extra_env.is_empty() {
+        shell::run_command_monitored("cargo", &str_slice(&branch_run_args), &branch_dir).await?
+    } else {
+        let mut env_args: Vec<String> = changed_extra_env;
+        env_args.push("cargo".to_string());
+        env_args.extend(branch_run_args);
+        shell::run_command_monitored("env", &str_slice(&env_args), &branch_dir).await?
+    };
 
     // Copy baselines into one target dir for critcmp
     copy_criterion_baselines(&base_dir, &branch_dir).await;

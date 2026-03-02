@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 use crate::benchmarks::{
     allowed_users_markdown, detect_benchmark, is_benchmark_trigger, is_queue_request,
-    supported_benchmarks_message,
+    is_singular_no_names, supported_benchmarks_message,
 };
 use crate::config::{BenchmarkConfig, Config, RepoEntry};
 use crate::db;
@@ -178,6 +178,7 @@ async fn process_comment(
                 let msg = not_allowed_message(login, comment_url, &bench_cfg.allowed_users);
                 gh.post_comment(repo, pr_number, &msg).await?;
             } else {
+                // Singular "run benchmark" with no names, or invalid names
                 let requested: Vec<String> = body
                     .trim()
                     .lines()
@@ -187,8 +188,17 @@ async fn process_comment(
                     .skip(2)
                     .map(|s| s.to_string())
                     .collect();
+                let prefix = if is_singular_no_names(body) {
+                    format!(
+                        "Hi @{login}, `run benchmark` requires benchmark names ({comment_url}).\n\n"
+                    )
+                } else {
+                    format!(
+                        "Hi @{login}, thanks for the request ({comment_url}).\n\n"
+                    )
+                };
                 let msg = format!(
-                    "Hi @{login}, thanks for the request ({comment_url}).\n\n{}",
+                    "{prefix}{}",
                     supported_benchmarks_message(repo_entry, &requested)
                 );
                 gh.post_comment(repo, pr_number, &msg).await?;
@@ -215,6 +225,8 @@ async fn process_comment(
 
     let pr_url = format!("https://github.com/{}/pull/{}", repo, pr_number);
     let env_vars_json = serde_json::to_string(&request.env_vars)?;
+    let baseline_env_json = serde_json::to_string(&request.baseline_env_vars)?;
+    let changed_env_json = serde_json::to_string(&request.changed_env_vars)?;
 
     // Resolve default benchmarks when "run benchmarks" is used without specific names
     let benchmarks = if request.benchmarks.is_empty() {
@@ -237,6 +249,10 @@ async fn process_comment(
                 login,
                 benchmarks: &benchmarks_json,
                 env_vars: &env_vars_json,
+                baseline_env_vars: &baseline_env_json,
+                changed_env_vars: &changed_env_json,
+                baseline_ref: request.baseline_ref.as_deref(),
+                changed_ref: request.changed_ref.as_deref(),
                 job_type: "standard",
             },
         )
@@ -260,6 +276,10 @@ async fn process_comment(
                     login,
                     benchmarks: &single_bench,
                     env_vars: &env_vars_json,
+                    baseline_env_vars: &baseline_env_json,
+                    changed_env_vars: &changed_env_json,
+                    baseline_ref: request.baseline_ref.as_deref(),
+                    changed_ref: request.changed_ref.as_deref(),
                     job_type,
                 },
             )
@@ -378,7 +398,11 @@ mod tests {
             pr_url: "https://github.com/apache/datafusion/pull/42".to_string(),
             login: "alice".to_string(),
             benchmarks: "[\"tpch\"]".to_string(),
-            env_vars: "[]".to_string(),
+            env_vars: "{}".to_string(),
+            baseline_env_vars: "{}".to_string(),
+            changed_env_vars: "{}".to_string(),
+            baseline_ref: None,
+            changed_ref: None,
             job_type: "standard".to_string(),
             cpu_request: None,
             memory_request: None,

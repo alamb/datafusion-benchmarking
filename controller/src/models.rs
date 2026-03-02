@@ -3,6 +3,8 @@
 //! Includes database row structs, GitHub API response types, and enums for
 //! job status and job type.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 /// Fields for inserting a new benchmark job into SQLite.
@@ -14,6 +16,10 @@ pub struct JobInsert<'a> {
     pub login: &'a str,
     pub benchmarks: &'a str,
     pub env_vars: &'a str,
+    pub baseline_env_vars: &'a str,
+    pub changed_env_vars: &'a str,
+    pub baseline_ref: Option<&'a str>,
+    pub changed_ref: Option<&'a str>,
     pub job_type: &'a str,
 }
 
@@ -35,6 +41,10 @@ pub struct BenchmarkJob {
     pub login: String,
     pub benchmarks: String,
     pub env_vars: String,
+    pub baseline_env_vars: String,
+    pub changed_env_vars: String,
+    pub baseline_ref: Option<String>,
+    pub changed_ref: Option<String>,
     pub job_type: String,
     pub cpu_request: Option<String>,
     pub memory_request: Option<String>,
@@ -51,7 +61,11 @@ pub struct BenchmarkJob {
 #[derive(Debug, Clone)]
 pub struct BenchmarkRequest {
     pub benchmarks: Vec<String>,
-    pub env_vars: Vec<String>,
+    pub env_vars: HashMap<String, String>,
+    pub baseline_env_vars: HashMap<String, String>,
+    pub changed_env_vars: HashMap<String, String>,
+    pub baseline_ref: Option<String>,
+    pub changed_ref: Option<String>,
 }
 
 /// Benchmark runner variant.

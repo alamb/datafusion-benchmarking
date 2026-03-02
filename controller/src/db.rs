@@ -22,9 +22,7 @@ pub async fn connect(database_url: &str) -> Result<SqlitePool> {
         .await?;
 
     // Run migrations
-    sqlx::raw_sql(include_str!("../migrations/001_initial.sql"))
-        .execute(&pool)
-        .await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
 
     Ok(pool)
 }
@@ -65,8 +63,10 @@ pub async fn mark_comment_seen(
 #[tracing::instrument(skip_all, fields(pr_number = job.pr_number, job_type = job.job_type))]
 pub async fn insert_job(pool: &SqlitePool, job: &JobInsert<'_>) -> Result<i64> {
     let result = sqlx::query(
-        "INSERT INTO benchmark_jobs (comment_id, repo, pr_number, pr_url, login, benchmarks, env_vars, job_type) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO benchmark_jobs \
+         (comment_id, repo, pr_number, pr_url, login, benchmarks, env_vars, \
+          baseline_env_vars, changed_env_vars, baseline_ref, changed_ref, job_type) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(job.comment_id)
     .bind(job.repo)
@@ -75,6 +75,10 @@ pub async fn insert_job(pool: &SqlitePool, job: &JobInsert<'_>) -> Result<i64> {
     .bind(job.login)
     .bind(job.benchmarks)
     .bind(job.env_vars)
+    .bind(job.baseline_env_vars)
+    .bind(job.changed_env_vars)
+    .bind(job.baseline_ref)
+    .bind(job.changed_ref)
     .bind(job.job_type)
     .execute(pool)
     .await?;
@@ -215,7 +219,11 @@ mod tests {
             pr_url: "https://github.com/apache/datafusion/pull/42",
             login: "alice",
             benchmarks: "[\"tpch\"]",
-            env_vars: "[]",
+            env_vars: "{}",
+            baseline_env_vars: "{}",
+            changed_env_vars: "{}",
+            baseline_ref: None,
+            changed_ref: None,
             job_type: "standard",
         }
     }

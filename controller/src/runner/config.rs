@@ -4,6 +4,8 @@
 //! `PR_URL`, `COMMENT_ID`, `BENCHMARKS`, `BENCH_TYPE`, `BENCH_NAME`,
 //! `BENCH_FILTER`, `REPO`, `GITHUB_TOKEN`, `JOB_NAME`.
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 
 /// Benchmark runner variant, parsed from `BENCH_TYPE`.
@@ -41,6 +43,10 @@ pub struct RunnerConfig {
     pub github_token: String,
     pub sccache_gcs_bucket: Option<String>,
     pub data_cache_bucket: Option<String>,
+    pub baseline_env_vars: HashMap<String, String>,
+    pub changed_env_vars: HashMap<String, String>,
+    pub baseline_ref: Option<String>,
+    pub changed_ref: Option<String>,
 }
 
 impl RunnerConfig {
@@ -50,6 +56,17 @@ impl RunnerConfig {
         let comment_id = env_required("COMMENT_ID")?;
         let comment_url = format!("{pr_url}#issuecomment-{comment_id}");
         let bench_type_str = env_required("BENCH_TYPE")?;
+
+        let baseline_env_vars: HashMap<String, String> =
+            std::env::var("BASELINE_ENV_VARS")
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+        let changed_env_vars: HashMap<String, String> =
+            std::env::var("CHANGED_ENV_VARS")
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
 
         Ok(Self {
             pr_url,
@@ -63,6 +80,10 @@ impl RunnerConfig {
             github_token: env_required("GITHUB_TOKEN")?,
             sccache_gcs_bucket: std::env::var("SCCACHE_GCS_BUCKET").ok(),
             data_cache_bucket: std::env::var("DATA_CACHE_BUCKET").ok(),
+            baseline_env_vars,
+            changed_env_vars,
+            baseline_ref: std::env::var("BASELINE_REF").ok(),
+            changed_ref: std::env::var("CHANGED_REF").ok(),
         })
     }
 
@@ -79,6 +100,25 @@ impl RunnerConfig {
             .next()
             .and_then(|s| s.parse().ok())
             .context("failed to parse PR number from PR_URL")
+    }
+
+    /// Build the env var arguments for running a baseline benchmark.
+    /// Merges shared env vars (already set on the pod) with baseline-specific ones.
+    /// Returns args like `["KEY=VALUE", ...]` for passing to `env` command.
+    pub fn baseline_env_args(&self) -> Vec<String> {
+        self.baseline_env_vars
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect()
+    }
+
+    /// Build the env var arguments for running a changed/branch benchmark.
+    /// Returns args like `["KEY=VALUE", ...]` for passing to `env` command.
+    pub fn changed_env_args(&self) -> Vec<String> {
+        self.changed_env_vars
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect()
     }
 
     /// Set up sccache environment variables if configured.

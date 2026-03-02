@@ -218,7 +218,18 @@ async fn create_k8s_job(
     job: &BenchmarkJob,
 ) -> Result<String> {
     let benchmarks: Vec<String> = serde_json::from_str(&job.benchmarks)?;
-    let user_env_vars: Vec<String> = serde_json::from_str(&job.env_vars)?;
+
+    // Parse shared env vars — accept both legacy `["K=V"]` array and new `{"K":"V"}` map
+    let shared_env_vars: std::collections::HashMap<String, String> =
+        if job.env_vars.trim_start().starts_with('[') {
+            // Legacy format: JSON array of "KEY=VALUE" strings
+            let arr: Vec<String> = serde_json::from_str(&job.env_vars)?;
+            arr.iter()
+                .filter_map(|s| s.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+                .collect()
+        } else {
+            serde_json::from_str(&job.env_vars)?
+        };
 
     let job_name = format!("bench-c{}-{}", job.comment_id, job.id);
 
@@ -248,11 +259,21 @@ async fn create_k8s_job(
         },
     ];
 
-    // Add user-specified env vars
-    for ev in &user_env_vars {
-        if let Some((k, v)) = ev.split_once('=') {
-            env.push(env_var(k, v));
-        }
+    // Add shared env vars directly on the pod (backward compat)
+    for (k, v) in &shared_env_vars {
+        env.push(env_var(k, v));
+    }
+
+    // Pass per-side env vars as JSON maps for the runner to apply
+    env.push(env_var("BASELINE_ENV_VARS", &job.baseline_env_vars));
+    env.push(env_var("CHANGED_ENV_VARS", &job.changed_env_vars));
+
+    // Pass custom refs if set
+    if let Some(ref baseline_ref) = job.baseline_ref {
+        env.push(env_var("BASELINE_REF", baseline_ref));
+    }
+    if let Some(ref changed_ref) = job.changed_ref {
+        env.push(env_var("CHANGED_REF", changed_ref));
     }
 
     // For criterion benchmarks, set BENCH_NAME to the first benchmark
