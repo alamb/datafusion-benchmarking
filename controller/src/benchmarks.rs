@@ -299,9 +299,7 @@ pub fn supported_benchmarks_message(repo_entry: &RepoEntry, requested: &[String]
          run benchmarks                 # run default suite\n\
          run benchmarks <name1> <name2> # run specific benchmarks\n\
          ```\n\n\
-         Per-side configuration:\n\
-         ```\n\
-         run benchmark tpch\n\
+         Per-side configuration (`run benchmark tpch` followed by):\n\
          ```yaml\n\
          env:\n\
            SHARED_SETTING: enabled\n\
@@ -313,7 +311,6 @@ pub fn supported_benchmarks_message(repo_entry: &RepoEntry, requested: &[String]
            ref: v46.0.0\n\
            env:\n\
              DATAFUSION_RUNTIME_MEMORY_LIMIT: 2G\n\
-         ```\n\
          ```{unsupported}"
     )
 }
