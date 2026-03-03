@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 use crate::benchmarks::{
     allowed_users_markdown, detect_benchmark, is_benchmark_trigger, is_queue_request,
-    is_singular_no_names, supported_benchmarks_message,
+    is_singular_no_names, supported_benchmarks_message, DetectResult,
 };
 use crate::config::{BenchmarkConfig, Config, RepoEntry};
 use crate::db;
@@ -171,40 +171,56 @@ async fn process_comment(
     }
 
     // Try to detect benchmark trigger
-    let Some(request) = detect_benchmark(repo_entry, body) else {
-        // Check if it looks like a failed trigger attempt
-        if is_benchmark_trigger(body) {
-            if !bench_cfg.allowed_users.contains(login) {
-                let msg = not_allowed_message(login, comment_url, &bench_cfg.allowed_users);
-                gh.post_comment(repo, pr_number, &msg).await?;
-            } else {
-                // Singular "run benchmark" with no names, or invalid names
-                let requested: Vec<String> = body
-                    .trim()
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .skip(2)
-                    .map(|s| s.to_string())
-                    .collect();
-                let prefix = if is_singular_no_names(body) {
-                    format!(
-                        "Hi @{login}, `run benchmark` requires benchmark names ({comment_url}).\n\n"
-                    )
-                } else {
-                    format!("Hi @{login}, thanks for the request ({comment_url}).\n\n")
-                };
+    let request = match detect_benchmark(repo_entry, body) {
+        DetectResult::Parsed(req) => req,
+        DetectResult::ConfigError(err) => {
+            // YAML config was present but invalid — post a helpful error
+            if bench_cfg.allowed_users.contains(login) {
                 let msg = format!(
-                    "{prefix}{}",
-                    supported_benchmarks_message(repo_entry, &requested)
+                    "Hi @{login}, your benchmark configuration could not be parsed ({comment_url}).\n\n\
+                     **Error:** `{err}`\n\n{}",
+                    supported_benchmarks_message(repo_entry, &[])
                 );
                 gh.post_comment(repo, pr_number, &msg).await?;
             }
+            mark_seen(pool, comment, repo, pr_number).await?;
+            return Ok(());
         }
-        // Mark seen after any reply succeeds (or if not a trigger at all).
-        mark_seen(pool, comment, repo, pr_number).await?;
-        return Ok(());
+        DetectResult::None => {
+            // Check if it looks like a failed trigger attempt
+            if is_benchmark_trigger(body) {
+                if !bench_cfg.allowed_users.contains(login) {
+                    let msg = not_allowed_message(login, comment_url, &bench_cfg.allowed_users);
+                    gh.post_comment(repo, pr_number, &msg).await?;
+                } else {
+                    // Singular "run benchmark" with no names, or invalid names
+                    let requested: Vec<String> = body
+                        .trim()
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .split_whitespace()
+                        .skip(2)
+                        .map(|s| s.to_string())
+                        .collect();
+                    let prefix = if is_singular_no_names(body) {
+                        format!(
+                            "Hi @{login}, `run benchmark` requires benchmark names ({comment_url}).\n\n"
+                        )
+                    } else {
+                        format!("Hi @{login}, thanks for the request ({comment_url}).\n\n")
+                    };
+                    let msg = format!(
+                        "{prefix}{}",
+                        supported_benchmarks_message(repo_entry, &requested)
+                    );
+                    gh.post_comment(repo, pr_number, &msg).await?;
+                }
+            }
+            // Mark seen after any reply succeeds (or if not a trigger at all).
+            mark_seen(pool, comment, repo, pr_number).await?;
+            return Ok(());
+        }
     };
 
     // User must be allowed — mark seen only after reply succeeds.

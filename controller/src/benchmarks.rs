@@ -19,6 +19,7 @@ static TRIGGER_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 struct CommentConfig {
     env: Option<HashMap<String, String>>,
     baseline: Option<SideConfig>,
@@ -26,10 +27,21 @@ struct CommentConfig {
 }
 
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 struct SideConfig {
     #[serde(rename = "ref")]
     git_ref: Option<String>,
     env: Option<HashMap<String, String>>,
+}
+
+/// Result of [`detect_benchmark`].
+pub enum DetectResult {
+    /// Successfully parsed trigger and config.
+    Parsed(BenchmarkRequest),
+    /// Trigger matched but YAML config had errors.
+    ConfigError(String),
+    /// Not a trigger at all.
+    None,
 }
 
 impl RepoEntry {
@@ -52,15 +64,19 @@ impl RepoEntry {
 /// Parse the extra lines (after the trigger line) into structured env vars and refs.
 ///
 /// Supports an optional ` ```yaml ` / ` ``` ` fence around the YAML content.
+/// Returns `Err` with a human-readable message if YAML is present but invalid.
 fn parse_sections(
     lines: &[&str],
-) -> (
-    HashMap<String, String>,
-    HashMap<String, String>,
-    HashMap<String, String>,
-    Option<String>,
-    Option<String>,
-) {
+) -> Result<
+    (
+        HashMap<String, String>,
+        HashMap<String, String>,
+        HashMap<String, String>,
+        Option<String>,
+        Option<String>,
+    ),
+    String,
+> {
     let yaml: String = lines
         .iter()
         .filter(|l| {
@@ -70,10 +86,13 @@ fn parse_sections(
         .copied()
         .collect::<Vec<&str>>()
         .join("\n");
-    let config: CommentConfig = match serde_yaml::from_str(&yaml) {
-        Ok(c) => c,
-        Err(_) => return Default::default(),
-    };
+
+    if yaml.trim().is_empty() {
+        return Ok(Default::default());
+    }
+
+    let config: CommentConfig =
+        serde_yaml::from_str(&yaml).map_err(|e| format!("invalid configuration: {e}"))?;
 
     let shared_env = config.env.unwrap_or_default();
     let baseline_env = config
@@ -89,13 +108,13 @@ fn parse_sections(
     let baseline_ref = config.baseline.as_ref().and_then(|s| s.git_ref.clone());
     let changed_ref = config.changed.as_ref().and_then(|s| s.git_ref.clone());
 
-    (
+    Ok((
         shared_env,
         baseline_env,
         changed_env,
         baseline_ref,
         changed_ref,
-    )
+    ))
 }
 
 /// Result of parsing the trigger line.
@@ -148,21 +167,28 @@ pub fn parse_trigger(trigger: &str) -> Option<TriggerKind> {
 /// should post a help message).
 ///
 /// Supports `baseline:`/`changed:` sections with `env:` and `ref:` sub-entries.
-pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> Option<BenchmarkRequest> {
+pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> DetectResult {
     let lines: Vec<&str> = body.trim().lines().collect();
     if lines.is_empty() {
-        return None;
+        return DetectResult::None;
     }
 
     let trigger = lines[0];
     let extra = &lines[1..];
 
-    let trigger_kind = parse_trigger(trigger)?;
+    let trigger_kind = match parse_trigger(trigger) {
+        Some(k) => k,
+        None => return DetectResult::None,
+    };
 
-    let (shared_env, baseline_env, changed_env, baseline_ref, changed_ref) = parse_sections(extra);
+    let (shared_env, baseline_env, changed_env, baseline_ref, changed_ref) =
+        match parse_sections(extra) {
+            Ok(sections) => sections,
+            Err(e) => return DetectResult::ConfigError(e),
+        };
 
     match trigger_kind {
-        TriggerKind::DefaultSuite => Some(BenchmarkRequest {
+        TriggerKind::DefaultSuite => DetectResult::Parsed(BenchmarkRequest {
             benchmarks: vec![],
             env_vars: shared_env,
             baseline_env_vars: baseline_env,
@@ -172,7 +198,7 @@ pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> Option<BenchmarkR
         }),
         TriggerKind::Named(names) => {
             if names.is_empty() {
-                return None;
+                return DetectResult::None;
             }
 
             let standard = repo_entry.standard_set();
@@ -183,7 +209,7 @@ pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> Option<BenchmarkR
                 .all(|n| standard.contains(n.as_str()) || criterion.contains(n.as_str()));
 
             if all_valid {
-                Some(BenchmarkRequest {
+                DetectResult::Parsed(BenchmarkRequest {
                     benchmarks: names,
                     env_vars: shared_env,
                     baseline_env_vars: baseline_env,
@@ -192,10 +218,10 @@ pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> Option<BenchmarkR
                     changed_ref,
                 })
             } else {
-                None
+                DetectResult::None
             }
         }
-        TriggerKind::SingularNoNames => None,
+        TriggerKind::SingularNoNames => DetectResult::None,
     }
 }
 
@@ -342,9 +368,26 @@ mod tests {
 
     // ── detect_benchmark ────────────────────────────────────────────
 
+    /// Helper to unwrap a DetectResult::Parsed or panic.
+    fn unwrap_parsed(result: DetectResult) -> BenchmarkRequest {
+        match result {
+            DetectResult::Parsed(req) => req,
+            DetectResult::ConfigError(e) => panic!("expected Parsed, got ConfigError: {e}"),
+            DetectResult::None => panic!("expected Parsed, got None"),
+        }
+    }
+
+    fn is_none(result: &DetectResult) -> bool {
+        matches!(result, DetectResult::None)
+    }
+
+    fn is_parsed(result: &DetectResult) -> bool {
+        matches!(result, DetectResult::Parsed(_))
+    }
+
     #[test]
     fn detect_default_suite() {
-        let req = detect_benchmark(&df_entry(), "run benchmarks").unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), "run benchmarks"));
         assert!(req.benchmarks.is_empty());
         assert!(req.env_vars.is_empty());
     }
@@ -352,7 +395,7 @@ mod tests {
     #[test]
     fn detect_default_suite_with_env_vars() {
         let body = "run benchmarks\nenv:\n  DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G";
-        let req = detect_benchmark(&df_entry(), body).unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), body));
         assert!(req.benchmarks.is_empty());
         assert_eq!(
             req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(),
@@ -362,51 +405,66 @@ mod tests {
 
     #[test]
     fn detect_single_named() {
-        let req = detect_benchmark(&df_entry(), "run benchmark tpch_mem").unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), "run benchmark tpch_mem"));
         assert_eq!(req.benchmarks, vec!["tpch_mem"]);
     }
 
     #[test]
     fn detect_multiple_named() {
-        let req = detect_benchmark(&df_entry(), "run benchmark tpch_mem tpch10").unwrap();
+        let req = unwrap_parsed(detect_benchmark(
+            &df_entry(),
+            "run benchmark tpch_mem tpch10",
+        ));
         assert_eq!(req.benchmarks, vec!["tpch_mem", "tpch10"]);
     }
 
     #[test]
     fn detect_criterion_benchmark() {
-        let req = detect_benchmark(&df_entry(), "run benchmark sql_planner").unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), "run benchmark sql_planner"));
         assert_eq!(req.benchmarks, vec!["sql_planner"]);
     }
 
     #[test]
     fn detect_bogus_name_returns_none() {
-        assert!(detect_benchmark(&df_entry(), "run benchmark bogus_name").is_none());
+        assert!(is_none(&detect_benchmark(
+            &df_entry(),
+            "run benchmark bogus_name"
+        )));
     }
 
     #[test]
     fn detect_one_invalid_rejects_all() {
-        assert!(detect_benchmark(&df_entry(), "run benchmark tpch_mem bogus").is_none());
+        assert!(is_none(&detect_benchmark(
+            &df_entry(),
+            "run benchmark tpch_mem bogus"
+        )));
     }
 
     #[test]
     fn detect_not_a_trigger() {
-        assert!(detect_benchmark(&df_entry(), "hello world").is_none());
+        assert!(is_none(&detect_benchmark(&df_entry(), "hello world")));
     }
 
     #[test]
     fn detect_empty_string() {
-        assert!(detect_benchmark(&df_entry(), "").is_none());
+        assert!(is_none(&detect_benchmark(&df_entry(), "")));
     }
 
     #[test]
     fn detect_case_insensitive() {
-        assert!(detect_benchmark(&df_entry(), "Run Benchmarks").is_some());
-        assert!(detect_benchmark(&df_entry(), "RUN BENCHMARK tpch").is_some());
+        assert!(is_parsed(&detect_benchmark(&df_entry(), "Run Benchmarks")));
+        assert!(is_parsed(&detect_benchmark(
+            &df_entry(),
+            "RUN BENCHMARK tpch"
+        )));
     }
 
     #[test]
     fn detect_arrow_criterion() {
-        let req = detect_benchmark(&arrow_entry(), "run benchmark arrow_reader").unwrap();
+        let req = unwrap_parsed(detect_benchmark(
+            &arrow_entry(),
+            "run benchmark arrow_reader",
+        ));
         assert_eq!(req.benchmarks, vec!["arrow_reader"]);
     }
 
@@ -414,7 +472,10 @@ mod tests {
 
     #[test]
     fn detect_plural_with_names() {
-        let req = detect_benchmark(&df_entry(), "run benchmarks tpch clickbench_1").unwrap();
+        let req = unwrap_parsed(detect_benchmark(
+            &df_entry(),
+            "run benchmarks tpch clickbench_1",
+        ));
         assert_eq!(req.benchmarks, vec!["tpch", "clickbench_1"]);
     }
 
@@ -422,7 +483,7 @@ mod tests {
 
     #[test]
     fn detect_singular_no_names_returns_none() {
-        assert!(detect_benchmark(&df_entry(), "run benchmark").is_none());
+        assert!(is_none(&detect_benchmark(&df_entry(), "run benchmark")));
     }
 
     #[test]
@@ -438,7 +499,7 @@ mod tests {
     #[test]
     fn parse_baseline_changed_env_vars() {
         let body = "run benchmark tpch\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT: 2G";
-        let req = detect_benchmark(&df_entry(), body).unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), body));
         assert_eq!(
             req.baseline_env_vars
                 .get("DATAFUSION_RUNTIME_MEMORY_LIMIT")
@@ -457,7 +518,7 @@ mod tests {
     #[test]
     fn parse_baseline_ref() {
         let body = "run benchmarks tpch clickbench_1\nbaseline:\n  ref: abc1234def";
-        let req = detect_benchmark(&df_entry(), body).unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), body));
         assert_eq!(req.baseline_ref.as_deref(), Some("abc1234def"));
         assert!(req.changed_ref.is_none());
     }
@@ -465,7 +526,7 @@ mod tests {
     #[test]
     fn parse_both_refs_with_env() {
         let body = "run benchmark tpch\nbaseline:\n  ref: v45.0.0\n  env:\n    FOO: old_value\nchanged:\n  ref: v46.0.0\n  env:\n    FOO: new_value";
-        let req = detect_benchmark(&df_entry(), body).unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), body));
         assert_eq!(req.baseline_ref.as_deref(), Some("v45.0.0"));
         assert_eq!(req.changed_ref.as_deref(), Some("v46.0.0"));
         assert_eq!(req.baseline_env_vars.get("FOO").unwrap(), "old_value");
@@ -475,7 +536,7 @@ mod tests {
     #[test]
     fn parse_shared_plus_per_side() {
         let body = "run benchmark tpch\nenv:\n  SHARED_SETTING: enabled\nbaseline:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G\nchanged:\n  env:\n    DATAFUSION_RUNTIME_MEMORY_LIMIT: 2G";
-        let req = detect_benchmark(&df_entry(), body).unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), body));
         assert_eq!(req.env_vars.get("SHARED_SETTING").unwrap(), "enabled");
         assert_eq!(
             req.baseline_env_vars
@@ -494,7 +555,7 @@ mod tests {
     #[test]
     fn parse_explicit_env_section() {
         let body = "run benchmark tpch\nenv:\n  DATAFUSION_RUNTIME_MEMORY_LIMIT: 1G";
-        let req = detect_benchmark(&df_entry(), body).unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), body));
         assert_eq!(
             req.env_vars.get("DATAFUSION_RUNTIME_MEMORY_LIMIT").unwrap(),
             "1G"
@@ -504,10 +565,28 @@ mod tests {
     #[test]
     fn parse_yaml_fenced_block() {
         let body = "run benchmark tpch\n```yaml\nbaseline:\n  ref: v45.0.0\n  env:\n    FOO: bar\nchanged:\n  ref: v46.0.0\n```";
-        let req = detect_benchmark(&df_entry(), body).unwrap();
+        let req = unwrap_parsed(detect_benchmark(&df_entry(), body));
         assert_eq!(req.baseline_ref.as_deref(), Some("v45.0.0"));
         assert_eq!(req.changed_ref.as_deref(), Some("v46.0.0"));
         assert_eq!(req.baseline_env_vars.get("FOO").unwrap(), "bar");
+    }
+
+    #[test]
+    fn parse_unknown_field_returns_config_error() {
+        let body = "run benchmark tpch\ncurrent:\n  ref: HEAD";
+        match detect_benchmark(&df_entry(), body) {
+            DetectResult::ConfigError(e) => {
+                assert!(e.contains("unknown field"), "error was: {e}");
+            }
+            other => panic!(
+                "expected ConfigError, got {}",
+                match other {
+                    DetectResult::Parsed(_) => "Parsed",
+                    DetectResult::None => "None",
+                    DetectResult::ConfigError(_) => unreachable!(),
+                }
+            ),
+        }
     }
 
     // ── is_benchmark_trigger ────────────────────────────────────────

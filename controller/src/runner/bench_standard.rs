@@ -132,13 +132,21 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     let baseline_extra_env = config.baseline_env_args();
     let changed_extra_env = config.changed_env_args();
 
+    // Explicit RESULTS_NAME ensures bench.sh saves to a predictable directory,
+    // regardless of whether DATAFUSION_DIR is on a branch or detached HEAD.
+    let base_results_name = "HEAD".to_string();
+    let bench_branch_name = git::sanitize_branch_name(&branch_name);
+
     for bench in benchmarks.split_whitespace() {
         info!("** Creating data if needed for {bench} **");
         cache_data(bench, &bench_dir_str).await;
 
         info!("** Running {bench} baseline **");
         let base_dir_str = base_dir.to_string_lossy().to_string();
-        let mut base_args: Vec<String> = vec![format!("DATAFUSION_DIR={base_dir_str}")];
+        let mut base_args: Vec<String> = vec![
+            format!("DATAFUSION_DIR={base_dir_str}"),
+            format!("RESULTS_NAME={base_results_name}"),
+        ];
         base_args.extend(baseline_extra_env.iter().cloned());
         base_args.extend([
             "./bench.sh".to_string(),
@@ -154,7 +162,10 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
 
         info!("** Running {bench} branch **");
         let branch_dir_str = branch_dir.to_string_lossy().to_string();
-        let mut branch_args: Vec<String> = vec![format!("DATAFUSION_DIR={branch_dir_str}")];
+        let mut branch_args: Vec<String> = vec![
+            format!("DATAFUSION_DIR={branch_dir_str}"),
+            format!("RESULTS_NAME={bench_branch_name}"),
+        ];
         branch_args.extend(changed_extra_env.iter().cloned());
         branch_args.extend([
             "./bench.sh".to_string(),
@@ -170,10 +181,9 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
     }
 
     // Compare and post results
-    let bench_branch_name = git::sanitize_branch_name(&branch_name);
     let report = shell::run_command(
         "./bench.sh",
-        &["compare_detail", "HEAD", &bench_branch_name],
+        &["compare_detail", &base_results_name, &bench_branch_name],
         &bench_benchmarks,
     )
     .await
