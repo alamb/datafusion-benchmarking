@@ -79,6 +79,7 @@ ALLOWED_CRITERION_BENCHMARKS_DF = {
     "in_list",
     "case_when",
     "aggregate_vectorized",
+    "array_set_ops",
     "aggregate_query_sql",
     "with_hashes",
     "range_and_generate_series",
