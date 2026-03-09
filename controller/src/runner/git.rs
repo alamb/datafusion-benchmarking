@@ -123,15 +123,16 @@ pub async fn cargo_update(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Pre-install the stable Rust toolchain to avoid race conditions in parallel builds.
+/// Verify the stable Rust toolchain is available.
+///
+/// The Docker image pre-installs stable and sets RUSTUP_TOOLCHAIN=stable,
+/// so we only verify it works here rather than running `toolchain install`
+/// which can fail in container overlay filesystems (cross-device link errors
+/// when rustup tries to rename across mount points).
 pub async fn rustup_stable() -> Result<()> {
-    run_command(
-        "rustup",
-        &["toolchain", "install", "stable", "--no-self-update"],
-        Path::new("/"),
-    )
-    .await
-    .context("rustup toolchain install")?;
+    run_command("rustc", &["--version"], Path::new("/"))
+        .await
+        .context("rustc --version (verify stable toolchain)")?;
     Ok(())
 }
 
