@@ -112,6 +112,7 @@ ALLOWED_CRITERION_BENCHMARKS_ARROW = {
     "encoding",
     "metadata",
     "json-reader",
+    "json_reader",
     "ipc_reader",
     "take_kernels",
     "sort_kernel",
