@@ -32,6 +32,12 @@ impl RepoEntry {
     pub fn criterion_set(&self) -> HashSet<&str> {
         self.criterion.iter().map(|s| s.as_str()).collect()
     }
+
+    /// Returns `true` if the criterion list contains `"*"`, meaning any
+    /// criterion benchmark name is accepted.
+    pub fn criterion_allows_any(&self) -> bool {
+        self.criterion.iter().any(|s| s == "*")
+    }
 }
 
 /// Top-level benchmark configuration deserialized from the `BENCHMARK_CONFIG` env var.

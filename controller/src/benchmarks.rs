@@ -49,7 +49,7 @@ impl RepoEntry {
     pub fn classify_benchmark(&self, name: &str) -> Option<JobType> {
         if self.standard_set().contains(name) {
             Some(JobType::Standard)
-        } else if self.criterion_set().contains(name) {
+        } else if self.criterion_allows_any() || self.criterion_set().contains(name) {
             if self.criterion_type == "arrow" {
                 Some(JobType::ArrowCriterion)
             } else {
@@ -203,10 +203,11 @@ pub fn detect_benchmark(repo_entry: &RepoEntry, body: &str) -> DetectResult {
 
             let standard = repo_entry.standard_set();
             let criterion = repo_entry.criterion_set();
+            let criterion_any = repo_entry.criterion_allows_any();
 
             let all_valid = names
                 .iter()
-                .all(|n| standard.contains(n.as_str()) || criterion.contains(n.as_str()));
+                .all(|n| standard.contains(n.as_str()) || criterion_any || criterion.contains(n.as_str()));
 
             if all_valid {
                 DetectResult::Parsed(BenchmarkRequest {
@@ -265,7 +266,10 @@ pub fn supported_benchmarks_message(repo_entry: &RepoEntry, requested: &[String]
     } else {
         standard.join(", ")
     };
-    let criterion_str = if criterion.is_empty() {
+    let criterion_any = repo_entry.criterion_allows_any();
+    let criterion_str = if criterion_any {
+        "(any)".to_string()
+    } else if criterion.is_empty() {
         "(none)".to_string()
     } else {
         criterion.join(", ")
@@ -276,7 +280,7 @@ pub fn supported_benchmarks_message(repo_entry: &RepoEntry, requested: &[String]
 
     let bad: Vec<&String> = requested
         .iter()
-        .filter(|n| !standard_set.contains(n.as_str()) && !criterion_set.contains(n.as_str()))
+        .filter(|n| !standard_set.contains(n.as_str()) && !criterion_any && !criterion_set.contains(n.as_str()))
         .collect();
 
     let unsupported = if bad.is_empty() {
@@ -360,6 +364,15 @@ mod tests {
             criterion: vec!["arrow_reader".into(), "arrow_writer".into()],
             criterion_type: "arrow".into(),
             default_standard: vec![],
+        }
+    }
+
+    fn wildcard_criterion_entry() -> RepoEntry {
+        RepoEntry {
+            standard: vec!["tpch".into()],
+            criterion: vec!["*".into()],
+            criterion_type: "datafusion".into(),
+            default_standard: vec!["tpch".into()],
         }
     }
 
@@ -664,6 +677,40 @@ mod tests {
             arrow_entry().classify_benchmark("arrow_reader"),
             Some(JobType::ArrowCriterion)
         );
+    }
+
+    // ── wildcard criterion ──────────────────────────────────────────
+
+    #[test]
+    fn detect_wildcard_criterion_accepts_any_name() {
+        let req = unwrap_parsed(detect_benchmark(
+            &wildcard_criterion_entry(),
+            "run benchmark anything_goes",
+        ));
+        assert_eq!(req.benchmarks, vec!["anything_goes"]);
+    }
+
+    #[test]
+    fn classify_wildcard_criterion() {
+        assert_eq!(
+            wildcard_criterion_entry().classify_benchmark("any_bench_name"),
+            Some(JobType::Criterion)
+        );
+    }
+
+    #[test]
+    fn classify_wildcard_standard_still_works() {
+        assert_eq!(
+            wildcard_criterion_entry().classify_benchmark("tpch"),
+            Some(JobType::Standard)
+        );
+    }
+
+    #[test]
+    fn supported_msg_wildcard_shows_any() {
+        let msg = supported_benchmarks_message(&wildcard_criterion_entry(), &["unknown".to_string()]);
+        assert!(msg.contains("(any)"));
+        assert!(!msg.contains("Unsupported"));
     }
 
     // ── supported_benchmarks_message ────────────────────────────────
