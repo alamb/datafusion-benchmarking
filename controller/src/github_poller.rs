@@ -26,8 +26,8 @@ use crate::models::{GitHubComment, JobInsert};
 /// │  │ for each repo in WATCHED_REPOS         │  │
 /// │  │   fetch comments since last_scan       │  │
 /// │  │   for each unseen comment              │  │
-/// │  │     "show benchmark queue" → reply      │  │
-/// │  │     "run benchmark X"     → insert job  │  │
+/// │  │     "show benchmark queue" → reply     │  │
+/// │  │     "run benchmark X"     → insert job │  │
 /// │  │   update last_scan                     │  │
 /// │  └────────────────────────────────────────┘  │
 /// └──────────────────────────────────────────────┘
