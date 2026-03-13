@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::github::GitHubClient;
 use crate::runner::config::RunnerConfig;
@@ -103,27 +103,40 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
         .await
         .context("branch build task panicked")?
         .context("branch build failed")?;
-    base_build
-        .await
-        .context("base build task panicked")?
-        .context("base build failed")?;
+    let baseline_available = match base_build.await {
+        Ok(Ok(())) => true,
+        Ok(Err(e)) => {
+            warn!("Baseline build failed (benchmark may be new): {e:#}");
+            false
+        }
+        Err(e) => {
+            warn!("Baseline build task panicked (benchmark may be new): {e:#}");
+            false
+        }
+    };
     info!("=== Compilation complete ===");
 
     // Run benchmarks sequentially, applying per-side env vars via `env` wrapper
-    info!("=== Running benchmark on merge-base ===");
-    let mut base_run_args = bench_command_args.clone();
-    base_run_args.extend(["--", "--save-baseline", "main"].map(String::from));
-    if !bench_filter.is_empty() {
-        base_run_args.push(bench_filter.clone());
-    }
-    let baseline_extra_env = config.baseline_env_args();
-    let (_, base_stats) = if baseline_extra_env.is_empty() {
-        shell::run_command_monitored("cargo", &str_slice(&base_run_args), &base_dir).await?
+    let base_stats = if baseline_available {
+        info!("=== Running benchmark on merge-base ===");
+        let mut base_run_args = bench_command_args.clone();
+        base_run_args.extend(["--", "--save-baseline", "main"].map(String::from));
+        if !bench_filter.is_empty() {
+            base_run_args.push(bench_filter.clone());
+        }
+        let baseline_extra_env = config.baseline_env_args();
+        let (_, stats) = if baseline_extra_env.is_empty() {
+            shell::run_command_monitored("cargo", &str_slice(&base_run_args), &base_dir).await?
+        } else {
+            let mut env_args: Vec<String> = baseline_extra_env;
+            env_args.push("cargo".to_string());
+            env_args.extend(base_run_args);
+            shell::run_command_monitored("env", &str_slice(&env_args), &base_dir).await?
+        };
+        Some(stats)
     } else {
-        let mut env_args: Vec<String> = baseline_extra_env;
-        env_args.push("cargo".to_string());
-        env_args.extend(base_run_args);
-        shell::run_command_monitored("env", &str_slice(&env_args), &base_dir).await?
+        info!("=== Skipping merge-base benchmark (baseline build failed) ===");
+        None
     };
 
     info!("=== Running benchmark on PR branch ===");
@@ -143,20 +156,30 @@ pub async fn run(config: &RunnerConfig, gh: &GitHubClient) -> Result<()> {
         shell::run_command_monitored("env", &str_slice(&env_args), &branch_dir).await?
     };
 
-    // Copy baselines into one target dir for critcmp
-    copy_criterion_baselines(&base_dir, &branch_dir).await;
-
     // Compare and post results
-    let report = shell::run_command("critcmp", &["main", &bench_branch_name], &branch_dir)
-        .await
-        .context("critcmp")?;
+    let result_body = if baseline_available {
+        // Copy baselines into one target dir for critcmp
+        copy_criterion_baselines(&base_dir, &branch_dir).await;
 
-    let resource_section = format!(
-        "{}\n{}",
-        monitor::format_resource_comment("base (merge-base)", &base_stats),
-        monitor::format_resource_comment("branch", &branch_stats),
-    );
-    let result_body = format_result_comment(&config.comment_url, &report, &resource_section);
+        let report = shell::run_command("critcmp", &["main", &bench_branch_name], &branch_dir)
+            .await
+            .context("critcmp")?;
+
+        let resource_section = format!(
+            "{}\n{}",
+            monitor::format_resource_comment("base (merge-base)", &base_stats.unwrap()),
+            monitor::format_resource_comment("branch", &branch_stats),
+        );
+        format_result_comment(&config.comment_url, &report, &resource_section)
+    } else {
+        let report = shell::run_command("critcmp", &[bench_branch_name.as_str()], &branch_dir)
+            .await
+            .context("critcmp")?;
+
+        let resource_section =
+            monitor::format_resource_comment("branch", &branch_stats).to_string();
+        format_branch_only_result_comment(&config.comment_url, &report, &resource_section)
+    };
     gh.post_comment(&config.repo, pr_number, &result_body)
         .await?;
 
@@ -208,6 +231,28 @@ fn format_result_comment(comment_url: &str, report: &str, resource_section: &str
     )
 }
 
+/// Format the result comment body for branch-only runs (no baseline comparison).
+fn format_branch_only_result_comment(
+    comment_url: &str,
+    report: &str,
+    resource_section: &str,
+) -> String {
+    format!(
+        "\u{1f916} Criterion benchmark completed (GKE) | [trigger]({comment_url})\n\n\
+         **New benchmark — branch-only results (no baseline comparison)**\n\n\
+         <details><summary>Details</summary>\n\
+         <p>\n\n\
+         ```\n\
+         {report}\
+         ```\n\n\
+         </p>\n\
+         </details>\n\n\
+         <details><summary>Resource Usage</summary>\n\n\
+         {resource_section}\
+         </details>\n"
+    )
+}
+
 /// Convert Vec<String> to a slice of &str for run_command.
 fn str_slice(v: &[String]) -> Vec<&str> {
     v.iter().map(|s| s.as_str()).collect()
@@ -238,5 +283,20 @@ mod tests {
         assert!(comment.contains("test report"));
         assert!(comment.contains("<details>"));
         assert!(comment.contains("Resource Usage"));
+    }
+
+    #[test]
+    fn branch_only_result_comment_format() {
+        let comment = format_branch_only_result_comment(
+            "https://example.com/comment",
+            "branch report\n",
+            "branch resources\n",
+        );
+        assert!(comment.contains("Criterion benchmark completed"));
+        assert!(comment.contains("New benchmark — branch-only results"));
+        assert!(comment.contains("[trigger](https://example.com/comment)"));
+        assert!(comment.contains("branch report"));
+        assert!(comment.contains("Resource Usage"));
+        assert!(comment.contains("branch resources"));
     }
 }
