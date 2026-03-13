@@ -89,16 +89,6 @@ async fn reconcile_pending(
                 info!(comment_id = job.comment_id, k8s_name = %k8s_name, "created k8s job");
                 db::update_job_status(pool, job.id, JobStatus::Running, Some(&k8s_name), None)
                     .await?;
-
-                // Post "running" comment, linking back to the triggering comment
-                let comment_url = format!("{}#issuecomment-{}", job.pr_url, job.comment_id);
-                let msg = format!(
-                    "Benchmark job started for [this request]({comment_url}) (job `{k8s_name}`). \
-                     Results will be posted here when complete.",
-                );
-                if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
-                    warn!(error = %e, "failed to post running comment");
-                }
             }
             Err(e) => {
                 warn!(comment_id = job.comment_id, error = %e, "failed to create k8s job");
@@ -347,7 +337,7 @@ async fn create_k8s_job(
             ..Default::default()
         },
         spec: Some(JobSpec {
-            backoff_limit: Some(3),
+            backoff_limit: Some(0),
             active_deadline_seconds: Some(config.active_deadline_secs),
             ttl_seconds_after_finished: Some(config.ttl_after_finished_secs),
             template: PodTemplateSpec {
