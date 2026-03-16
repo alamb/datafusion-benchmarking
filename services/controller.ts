@@ -142,7 +142,7 @@ export const controllerStatefulSet = new k8s.apps.v1.StatefulSet("benchmark-cont
               allowed_users: [
                 "alamb", "Dandandan", "adriangb", "rluvaton", "geoffreyclaude",
                 "xudong963", "zhuqi-lucas", "Omega359", "comphead", "klion26",
-                "gabotechs", "Jefffrey", "etseidl",
+                "gabotechs", "Jefffrey", "etseidl", "kosiew",
               ],
               repos: {
                 "adriangb/datafusion": {
