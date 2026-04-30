@@ -157,60 +157,32 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
         info!("** Running {bench} baseline **");
         let base_spill_dir = PathBuf::from(format!("/workspace/spill-base-{bench}"));
         let _ = tokio::fs::create_dir_all(&base_spill_dir).await;
-        let base_dir_str = base_dir.to_string_lossy().to_string();
-        let mut base_args: Vec<String> = vec![
-            format!("DATAFUSION_DIR={base_dir_str}"),
-            format!("RESULTS_NAME={base_results_name}"),
-            format!(
-                "DATAFUSION_RUNTIME_TEMP_DIRECTORY={}",
-                base_spill_dir.display()
-            ),
-        ];
-        base_args.extend(baseline_extra_env.iter().cloned());
-        base_args.extend([
-            "./bench.sh".to_string(),
-            "run".to_string(),
-            bench.to_string(),
-        ]);
-        let base_args_ref: Vec<&str> = base_args.iter().map(|s| s.as_str()).collect();
-        let (_, base_stats) = shell::run_command_monitored(
-            "env",
-            &base_args_ref,
+        let base_stats = run_one_side(
+            bench,
+            &base_dir,
             &bench_benchmarks,
-            Some(base_spill_dir.clone()),
+            &base_results_name,
+            &base_spill_dir,
+            &baseline_extra_env,
         )
         .await
-        .with_context(|| format!("bench.sh run {bench} (base)"))?;
+        .with_context(|| format!("run {bench} (base)"))?;
         let _ = tokio::fs::remove_dir_all(&base_spill_dir).await;
         base_stats_list.push((bench, base_stats));
 
         info!("** Running {bench} branch **");
         let branch_spill_dir = PathBuf::from(format!("/workspace/spill-branch-{bench}"));
         let _ = tokio::fs::create_dir_all(&branch_spill_dir).await;
-        let branch_dir_str = branch_dir.to_string_lossy().to_string();
-        let mut branch_args: Vec<String> = vec![
-            format!("DATAFUSION_DIR={branch_dir_str}"),
-            format!("RESULTS_NAME={bench_branch_name}"),
-            format!(
-                "DATAFUSION_RUNTIME_TEMP_DIRECTORY={}",
-                branch_spill_dir.display()
-            ),
-        ];
-        branch_args.extend(changed_extra_env.iter().cloned());
-        branch_args.extend([
-            "./bench.sh".to_string(),
-            "run".to_string(),
-            bench.to_string(),
-        ]);
-        let branch_args_ref: Vec<&str> = branch_args.iter().map(|s| s.as_str()).collect();
-        let (_, branch_stats) = shell::run_command_monitored(
-            "env",
-            &branch_args_ref,
+        let branch_stats = run_one_side(
+            bench,
+            &branch_dir,
             &bench_benchmarks,
-            Some(branch_spill_dir.clone()),
+            &bench_branch_name,
+            &branch_spill_dir,
+            &changed_extra_env,
         )
         .await
-        .with_context(|| format!("bench.sh run {bench} (branch)"))?;
+        .with_context(|| format!("run {bench} (branch)"))?;
         let _ = tokio::fs::remove_dir_all(&branch_spill_dir).await;
         branch_stats_list.push((bench, branch_stats));
     }
@@ -239,6 +211,148 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+/// Run a single benchmark on one side (base or branch).
+///
+/// For TPC-H variants we bypass `bench.sh run` and invoke the prebuilt `dfbench`
+/// binary directly. Upstream PR apache/datafusion#21707 ported `bench.sh`'s
+/// `run_tpch` to a Criterion-based SQL harness whose data paths are relative
+/// to `${DATAFUSION_DIR}/benchmarks` and whose timings live under
+/// `target/criterion/`, neither of which fits this controller's layout (data
+/// is in `bench_dir/benchmarks/data`, comparisons read JSON from
+/// `bench_dir/benchmarks/results/`). The `dfbench tpch` subcommand still
+/// exists upstream, so we call it directly with the same args the old
+/// `run_tpch` used. Other benchmarks continue through `bench.sh`.
+async fn run_one_side(
+    bench: &str,
+    side_dir: &Path,
+    bench_benchmarks: &Path,
+    results_name: &str,
+    spill_dir: &Path,
+    extra_env: &[String],
+) -> Result<ResourceStats> {
+    if let Some((tpch_args, results_filename)) = tpch_direct_args(bench) {
+        run_tpch_direct(
+            side_dir,
+            bench_benchmarks,
+            results_name,
+            spill_dir,
+            extra_env,
+            tpch_args,
+            results_filename,
+        )
+        .await
+    } else {
+        let mut args: Vec<String> = vec![
+            format!("DATAFUSION_DIR={}", side_dir.display()),
+            format!("RESULTS_NAME={results_name}"),
+            format!("DATAFUSION_RUNTIME_TEMP_DIRECTORY={}", spill_dir.display()),
+        ];
+        args.extend(extra_env.iter().cloned());
+        args.extend([
+            "./bench.sh".to_string(),
+            "run".to_string(),
+            bench.to_string(),
+        ]);
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        let (_, stats) = shell::run_command_monitored(
+            "env",
+            &args_ref,
+            bench_benchmarks,
+            Some(spill_dir.to_path_buf()),
+        )
+        .await?;
+        Ok(stats)
+    }
+}
+
+/// Map a TPC-H bench name to (dfbench tpch args, results JSON filename).
+/// Returns `None` for non-TPC-H benchmarks.
+fn tpch_direct_args(bench: &str) -> Option<(Vec<String>, String)> {
+    let (sf, in_mem) = match bench {
+        "tpch" => ("1", false),
+        "tpch10" => ("10", false),
+        "tpch_mem" => ("1", true),
+        "tpch_mem10" => ("10", true),
+        _ => return None,
+    };
+    let mut args: Vec<String> = vec![
+        "tpch".into(),
+        "--iterations".into(),
+        "5".into(),
+        "--scale-factor".into(),
+        sf.into(),
+        "--format".into(),
+        "parquet".into(),
+        "--prefer_hash_join".into(),
+        "true".into(),
+    ];
+    if in_mem {
+        args.push("-m".into());
+    }
+    let results_filename = if in_mem {
+        format!("tpch_mem_sf{sf}.json")
+    } else {
+        format!("tpch_sf{sf}.json")
+    };
+    Some((args, results_filename))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_tpch_direct(
+    side_dir: &Path,
+    bench_benchmarks: &Path,
+    results_name: &str,
+    spill_dir: &Path,
+    extra_env: &[String],
+    tpch_args: Vec<String>,
+    results_filename: String,
+) -> Result<ResourceStats> {
+    let dfbench = side_dir.join("target/release/dfbench");
+    if !dfbench.exists() {
+        anyhow::bail!("dfbench binary not found at {}", dfbench.display());
+    }
+
+    // bench.sh writes results under SCRIPT_DIR/results/<RESULTS_NAME>; mimic that.
+    let results_dir = bench_benchmarks.join("results").join(results_name);
+    tokio::fs::create_dir_all(&results_dir)
+        .await
+        .with_context(|| format!("creating results dir {}", results_dir.display()))?;
+    let results_file = results_dir.join(&results_filename);
+
+    // Data lives in bench_benchmarks/data/tpch_sf<SF> (created by `bench.sh data tpch`).
+    // Locate the right data dir from the args we built (--scale-factor SF).
+    let sf = tpch_args
+        .iter()
+        .skip_while(|a| a.as_str() != "--scale-factor")
+        .nth(1)
+        .ok_or_else(|| anyhow::anyhow!("missing --scale-factor in tpch args"))?;
+    let data_path = bench_benchmarks.join(format!("data/tpch_sf{sf}"));
+
+    let mut env_args: Vec<String> = vec![format!(
+        "DATAFUSION_RUNTIME_TEMP_DIRECTORY={}",
+        spill_dir.display()
+    )];
+    env_args.extend(extra_env.iter().cloned());
+    env_args.push(dfbench.to_string_lossy().into_owned());
+    env_args.extend(tpch_args);
+    env_args.extend([
+        "--path".to_string(),
+        data_path.to_string_lossy().into_owned(),
+        "-o".to_string(),
+        results_file.to_string_lossy().into_owned(),
+    ]);
+
+    let env_args_ref: Vec<&str> = env_args.iter().map(|s| s.as_str()).collect();
+    let (_, stats) = shell::run_command_monitored(
+        "env",
+        &env_args_ref,
+        bench_benchmarks,
+        Some(spill_dir.to_path_buf()),
+    )
+    .await?;
+    Ok(stats)
 }
 
 /// Copy TPC-H answer files from the baked-in location into the benchmark data dirs.
@@ -358,5 +472,31 @@ mod tests {
         assert!(comment.contains("c4a-standard-48"));
         assert!(comment.contains("12 vCPU / 65 GiB"));
         assert!(comment.contains("lscpu output"));
+    }
+
+    #[test]
+    fn tpch_direct_args_maps_variants() {
+        let (args, results) = tpch_direct_args("tpch").unwrap();
+        assert!(args.contains(&"--scale-factor".to_string()));
+        assert!(args.contains(&"1".to_string()));
+        assert!(!args.contains(&"-m".to_string()));
+        assert_eq!(results, "tpch_sf1.json");
+
+        let (args, results) = tpch_direct_args("tpch10").unwrap();
+        assert!(args.contains(&"10".to_string()));
+        assert!(!args.contains(&"-m".to_string()));
+        assert_eq!(results, "tpch_sf10.json");
+
+        let (args, results) = tpch_direct_args("tpch_mem").unwrap();
+        assert!(args.contains(&"-m".to_string()));
+        assert_eq!(results, "tpch_mem_sf1.json");
+
+        let (args, results) = tpch_direct_args("tpch_mem10").unwrap();
+        assert!(args.contains(&"-m".to_string()));
+        assert!(args.contains(&"10".to_string()));
+        assert_eq!(results, "tpch_mem_sf10.json");
+
+        assert!(tpch_direct_args("clickbench_1").is_none());
+        assert!(tpch_direct_args("topk_tpch").is_none());
     }
 }
