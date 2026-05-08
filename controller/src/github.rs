@@ -164,6 +164,29 @@ impl GitHubClient {
         .await
     }
 
+    /// Send a PATCH request with retry logic. Returns the successful response.
+    async fn patch_with_retry(&self, url: &str, body: serde_json::Value) -> Result<Response> {
+        let url = url.to_string();
+
+        (|| {
+            let url = url.clone();
+            let body = body.clone();
+            async move {
+                let resp = self
+                    .request_builder(self.client.patch(&url))
+                    .json(&body)
+                    .send()
+                    .await
+                    .context("send request")?;
+                Self::check_response(resp, "PATCH").await
+            }
+        })
+        .retry(ExponentialBuilder::default().with_max_times(3))
+        .sleep(tokio::time::sleep)
+        .when(is_retryable)
+        .await
+    }
+
     /// Fetch issue/PR comments updated since `since` (ISO 8601), paginating through all results.
     /// Caps at MAX_PAGES pages (10,000 comments).
     #[tracing::instrument(skip(self, since))]
@@ -244,6 +267,32 @@ impl GitHubClient {
         let resp = self.get_with_retry(&url, &[]).await?;
         let pull: Pull = resp.json().await.context("parse pull json")?;
         Ok(pull.head.ref_)
+    }
+
+    /// Fetch the body of an issue/PR comment.
+    #[tracing::instrument(skip(self))]
+    pub async fn get_comment_body(&self, repo: &str, comment_id: i64) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct Comment {
+            body: Option<String>,
+        }
+        let url = format!("{API_BASE}/repos/{repo}/issues/comments/{comment_id}");
+        let resp = self
+            .get_with_retry(&url, &[])
+            .await
+            .context("fetch comment")?;
+        let comment: Comment = resp.json().await.context("parse comment json")?;
+        Ok(comment.body.unwrap_or_default())
+    }
+
+    /// Replace the body of an issue/PR comment.
+    #[tracing::instrument(skip(self, body))]
+    pub async fn update_comment(&self, repo: &str, comment_id: i64, body: &str) -> Result<()> {
+        let url = format!("{API_BASE}/repos/{repo}/issues/comments/{comment_id}");
+        self.patch_with_retry(&url, serde_json::json!({ "body": body }))
+            .await
+            .context("update comment")?;
+        Ok(())
     }
 
     /// Add a reaction (e.g. "rocket") to a comment. Logs a warning on failure instead of erroring.

@@ -21,7 +21,8 @@ use tracing::{info, warn};
 
 use crate::config::Config;
 use crate::db;
-use crate::github::{self, GitHubClient};
+use crate::github::GitHubClient;
+use crate::health::{self, CommentLocks};
 use crate::models::{BenchmarkJob, JobStatus};
 
 /// Infinite reconciliation loop that drives jobs through their lifecycle.
@@ -47,6 +48,7 @@ pub async fn reconcile_loop(
     config: Config,
     pool: SqlitePool,
     gh: GitHubClient,
+    comment_locks: CommentLocks,
     token: tokio_util::sync::CancellationToken,
 ) -> Result<()> {
     let interval = tokio::time::Duration::from_secs(config.reconcile_interval_secs);
@@ -56,10 +58,10 @@ pub async fn reconcile_loop(
         .context("failed to create kube client")?;
 
     loop {
-        if let Err(e) = reconcile_pending(&config, &pool, &gh, &kube_client).await {
+        if let Err(e) = reconcile_pending(&config, &pool, &gh, &comment_locks, &kube_client).await {
             warn!(error = %e, "reconcile pending error");
         }
-        if let Err(e) = reconcile_active(&config, &pool, &gh, &kube_client).await {
+        if let Err(e) = reconcile_active(&config, &pool, &gh, &comment_locks, &kube_client).await {
             warn!(error = %e, "reconcile active error");
         }
         tokio::select! {
@@ -79,6 +81,7 @@ async fn reconcile_pending(
     config: &Config,
     pool: &SqlitePool,
     gh: &GitHubClient,
+    locks: &CommentLocks,
     kube: &KubeClient,
 ) -> Result<()> {
     let pending = db::get_pending_jobs(pool).await?;
@@ -123,13 +126,20 @@ async fn reconcile_pending(
                 )
                 .await?;
 
-                let comment_url = format!("{}#issuecomment-{}", job.pr_url, job.comment_id);
-                let footer = github::issues_footer(config.runner_repo_url.as_deref());
-                let msg = format!(
-                    "Failed to start benchmark for [this request]({comment_url}): {e}{footer}"
-                );
-                if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &msg).await {
-                    warn!(error = %e, "failed to post error comment");
+                let section = format!("\u{1f6a8} **Failed to start benchmark**\n\n```\n{e}\n```");
+                if let Err(e) = health::update_trigger_comment(
+                    pool,
+                    gh,
+                    locks,
+                    config.runner_repo_url.as_deref(),
+                    job.id,
+                    &job.repo,
+                    job.comment_id,
+                    &section,
+                )
+                .await
+                {
+                    warn!(error = %e, "failed to update trigger comment with start error");
                 }
             }
         }
@@ -144,6 +154,7 @@ async fn reconcile_active(
     config: &Config,
     pool: &SqlitePool,
     gh: &GitHubClient,
+    locks: &CommentLocks,
     kube: &KubeClient,
 ) -> Result<()> {
     let active = db::get_active_jobs(pool).await?;
@@ -197,7 +208,8 @@ async fn reconcile_active(
                     // fire. The controller posts the notification here so the
                     // PR doesn't go silent.
                     if reason == "DeadlineExceeded" {
-                        post_deadline_exceeded_comment(config, gh, &job, message).await;
+                        post_deadline_exceeded_comment(config, gh, locks, pool, &job, message)
+                            .await;
                     }
                 }
             }
@@ -224,23 +236,21 @@ async fn reconcile_active(
     Ok(())
 }
 
-/// Post a PR comment when a benchmark Job hits `activeDeadlineSeconds`.
-///
-/// The runner's own `post_error_comment` can't fire in this case because the
-/// deadline SIGKILLs the pod. Failures to post are logged but not propagated —
-/// the DB is already marked failed, and repeatedly retrying would risk double
-/// comments.
+/// Update the trigger comment when a benchmark Job hits
+/// `activeDeadlineSeconds`. The runner's own error path can't fire because
+/// the deadline SIGKILLs the pod. Failures are logged but not propagated —
+/// the DB is already marked failed, and retrying could thrash the comment.
 async fn post_deadline_exceeded_comment(
     config: &Config,
     gh: &GitHubClient,
+    locks: &CommentLocks,
+    pool: &SqlitePool,
     job: &BenchmarkJob,
     k8s_message: &str,
 ) {
     let benchmarks = serde_json::from_str::<Vec<String>>(&job.benchmarks)
         .map(|v| v.join(", "))
         .unwrap_or_else(|_| job.benchmarks.clone());
-    let comment_url = format!("{}#issuecomment-{}", job.pr_url, job.comment_id);
-    let footer = github::issues_footer(config.runner_repo_url.as_deref());
     let k8s_detail = if k8s_message.is_empty() {
         String::new()
     } else {
@@ -248,16 +258,27 @@ async fn post_deadline_exceeded_comment(
             "\n\n<details><summary>Kubernetes message</summary>\n\n```\n{k8s_message}\n```\n\n</details>"
         )
     };
-    let body = format!(
-        "Benchmark for [this request]({comment_url}) hit the {deadline}s job deadline before finishing.\n\n\
-         Benchmarks requested: `{benchmarks}`{k8s_detail}{footer}",
+    let section = format!(
+        "\u{23F1}\u{FE0F} **Benchmark hit the {deadline}s job deadline**\n\n\
+         Benchmarks requested: `{benchmarks}`{k8s_detail}",
         deadline = config.active_deadline_secs,
     );
-    if let Err(e) = gh.post_comment(&job.repo, job.pr_number, &body).await {
+    if let Err(e) = health::update_trigger_comment(
+        pool,
+        gh,
+        locks,
+        config.runner_repo_url.as_deref(),
+        job.id,
+        &job.repo,
+        job.comment_id,
+        &section,
+    )
+    .await
+    {
         warn!(
             comment_id = job.comment_id,
             error = %e,
-            "failed to post deadline-exceeded comment"
+            "failed to update trigger comment for deadline-exceeded"
         );
     }
 }

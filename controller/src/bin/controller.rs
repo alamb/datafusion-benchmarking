@@ -34,12 +34,18 @@ async fn main() -> Result<()> {
 
     let token = CancellationToken::new();
     let ready = health::ready_flag();
+    let comment_locks = health::comment_locks();
+    let server_config = health::ServerConfig {
+        runner_repo_url: config.runner_repo_url.clone(),
+    };
 
     let health_handle = tokio::spawn(health::serve(
         token.clone(),
         ready.clone(),
         pool.clone(),
         gh.clone(),
+        comment_locks.clone(),
+        server_config,
     ));
 
     let poller = tokio::spawn(github_poller::poll_loop(
@@ -53,6 +59,7 @@ async fn main() -> Result<()> {
         config.clone(),
         pool.clone(),
         gh.clone(),
+        comment_locks.clone(),
         token.clone(),
     ));
 

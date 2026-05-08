@@ -114,9 +114,10 @@ impl RunnerConfig {
     /// Build the [`CommentPoster`] implied by [`Self::poster_mode`].
     pub fn build_poster(&self) -> CommentPoster {
         match &self.poster_mode {
-            PosterMode::Direct { github_token } => {
-                CommentPoster::Direct(GitHubClient::new(github_token))
-            }
+            PosterMode::Direct { github_token } => CommentPoster::Direct {
+                client: GitHubClient::new(github_token),
+                runner_repo_url: self.runner_repo_url.clone(),
+            },
             PosterMode::Proxy {
                 controller_url,
                 job_id,
@@ -127,6 +128,13 @@ impl RunnerConfig {
                 token.clone(),
             )),
         }
+    }
+
+    /// The trigger comment id, parsed from `COMMENT_ID`.
+    pub fn comment_id_i64(&self) -> Result<i64> {
+        self.comment_id
+            .parse()
+            .with_context(|| format!("invalid COMMENT_ID: {}", self.comment_id))
     }
 
     /// The repo clone URL.
