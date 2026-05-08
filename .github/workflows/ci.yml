@@ -41,6 +41,16 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install gke-gcloud-auth-plugin
+        run: gcloud components install gke-gcloud-auth-plugin
+
       - name: Install dependencies
         run: npm ci
 
@@ -49,6 +59,13 @@ jobs:
           organization: ${{ vars.PULUMI_ORG }}
           requested-token-type: urn:pulumi:token-type:access_token:personal
           scope: user:${{ vars.PULUMI_USER }}
+
+      - name: Configure Pulumi stack
+        working-directory: infra
+        run: |
+          pulumi stack select --create ${{ vars.PULUMI_ORG }}/dev
+          pulumi config set gcp:project ${{ vars.GCP_PROJECT_ID }}
+          pulumi config set gcp:region ${{ vars.GCP_REGION }}
 
       - uses: pulumi/actions@v5
         with:
@@ -70,6 +87,15 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: gke-gcloud-auth-plugin
+
       - name: Install dependencies
         run: npm ci
 
@@ -78,6 +104,19 @@ jobs:
           organization: ${{ vars.PULUMI_ORG }}
           requested-token-type: urn:pulumi:token-type:access_token:personal
           scope: user:${{ vars.PULUMI_USER }}
+
+      - name: Configure Pulumi stack
+        working-directory: services
+        run: |
+          pulumi stack select --create ${{ vars.PULUMI_ORG }}/dev
+          pulumi config set gcp:project ${{ vars.GCP_PROJECT_ID }}
+          pulumi config set gcp:region ${{ vars.GCP_REGION }}
+          pulumi config set --secret githubToken '${{ secrets.GH_CONTROLLER_TOKEN }}'
+          if [ -n "${{ secrets.LOGFIRE_TOKEN }}" ]; then
+            pulumi config set --secret logfireToken '${{ secrets.LOGFIRE_TOKEN }}'
+          fi
+          pulumi config set imageTag ${{ github.sha }}
+          pulumi config set runnerRepoUrl '${{ github.server_url }}/${{ github.repository }}'
 
       - uses: pulumi/actions@v5
         with:
