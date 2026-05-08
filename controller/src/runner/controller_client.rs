@@ -28,12 +28,10 @@ impl ControllerClient {
         }
     }
 
-    /// Post a comment on the PR associated with this runner's job. `repo` and
-    /// `pr_number` are accepted for signature parity with
-    /// [`crate::github::GitHubClient::post_comment`] but are ignored — the
-    /// controller resolves both from the job's DB row.
+    /// Replace this job's section of the trigger comment. The controller
+    /// merges sibling-job sections and PATCHes the comment.
     #[tracing::instrument(skip(self, body), fields(job_id = %self.job_id))]
-    pub async fn post_comment(&self, _repo: &str, _pr_number: i64, body: &str) -> Result<()> {
+    pub async fn post_section(&self, body: &str) -> Result<()> {
         let url = format!("{}/jobs/{}/comment", self.base_url, self.job_id);
         let payload = json!({ "body": body });
 

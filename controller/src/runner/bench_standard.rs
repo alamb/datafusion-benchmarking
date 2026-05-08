@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use tracing::info;
 
-use crate::github;
 use crate::runner::config::RunnerConfig;
 use crate::runner::git;
 use crate::runner::monitor::{self, ResourceStats};
@@ -71,12 +70,12 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
         "/tmp/base_build.log",
     );
 
-    // Post "running" comment
+    // Post "running" section
     let uname = shell::uname().await;
     let instance_type = shell::node_instance_type().await;
     let pod_resources = shell::pod_resources();
     let lscpu = shell::lscpu().await;
-    let pr_number = config.pr_number()?;
+    let comment_id = config.comment_id_i64()?;
 
     // Resolve display names for the comparison
     let changed_display = config.changed_ref.as_deref().unwrap_or(&branch_name);
@@ -88,24 +87,17 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
         format!("{} (merge-base)", &base_sha[..7.min(base_sha.len())])
     };
 
-    let footer = github::issues_footer(config.runner_repo_url.as_deref());
-    let running_body = format!(
-        "\u{1f916} Benchmark running (GKE) | [trigger]({})\n\
-         **Instance:** `{instance_type}` ({pod_resources}) | `{uname}`\n\
-         <details><summary>CPU Details (lscpu)</summary>\n\n\
-         ```\n\
-         {lscpu}\n\
-         ```\n\n\
-         </details>\n\n\
+    let machine_details = format_machine_details(&instance_type, &pod_resources, &uname, &lscpu);
+    let running_section = format!(
+        "\u{1f916} **Benchmark running (GKE)**\n\n\
          Comparing {changed_display} ({changed_sha}) to {baseline_label} \
          [diff](https://github.com/{repo}/compare/{base_sha}..{changed_sha}) \
-         using: {benchmarks}\n\
-         Results will be posted here when complete{footer}",
-        config.comment_url,
+         using: {benchmarks}\n\n\
+         {machine_details}",
         repo = config.repo,
     );
     poster
-        .post_comment(&config.repo, pr_number, &running_body)
+        .update_section(&config.repo, comment_id, &running_section)
         .await?;
 
     // Wait for builds
@@ -197,20 +189,29 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
     .context("bench.sh compare")?;
 
     let resource_section = format_resource_section(&base_stats_list, &branch_stats_list);
-    let result_body = format_result_comment(
-        &config.comment_url,
-        &report,
-        &resource_section,
-        &instance_type,
-        &pod_resources,
-        &lscpu,
-        &footer,
-    );
+    let result_section = format_result_section(&report, &resource_section, &machine_details);
     poster
-        .post_comment(&config.repo, pr_number, &result_body)
+        .update_section(&config.repo, comment_id, &result_section)
         .await?;
 
     Ok(())
+}
+
+/// Single collapsed `<details>` block holding instance/pod/uname/lscpu so the
+/// trigger comment stays compact while the run is still in progress.
+pub(crate) fn format_machine_details(
+    instance_type: &str,
+    pod_resources: &str,
+    uname: &str,
+    lscpu: &str,
+) -> String {
+    format!(
+        "<details><summary>Machine info</summary>\n\n\
+         **Instance:** `{instance_type}` ({pod_resources})\n\n\
+         **uname:** `{uname}`\n\n\
+         ```\n{lscpu}\n```\n\n\
+         </details>"
+    )
 }
 
 /// Run a single benchmark on one side (base or branch).
@@ -416,24 +417,12 @@ fn format_resource_section(
     section
 }
 
-/// Format the result comment body.
-fn format_result_comment(
-    comment_url: &str,
-    report: &str,
-    resource_section: &str,
-    instance_type: &str,
-    pod_resources: &str,
-    lscpu: &str,
-    footer: &str,
-) -> String {
+/// Format the per-job "completed" section that gets merged into the trigger
+/// comment. The section is bracketed by the controller-side renderer, so this
+/// only contains the parts specific to a single benchmark run.
+fn format_result_section(report: &str, resource_section: &str, machine_details: &str) -> String {
     format!(
-        "\u{1f916} Benchmark completed (GKE) | [trigger]({comment_url})\n\n\
-         **Instance:** `{instance_type}` ({pod_resources})\n\n\
-         <details><summary>CPU Details (lscpu)</summary>\n\n\
-         ```\n\
-         {lscpu}\n\
-         ```\n\n\
-         </details>\n\n\
+        "\u{1f916} **Benchmark completed (GKE)**\n\n\
          <details><summary>Details</summary>\n\
          <p>\n\n\
          ```\n\
@@ -443,8 +432,8 @@ fn format_result_comment(
          </details>\n\n\
          <details><summary>Resource Usage</summary>\n\n\
          {resource_section}\
-         </details>\n\
-         {footer}"
+         </details>\n\n\
+         {machine_details}"
     )
 }
 
@@ -453,25 +442,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn result_comment_format() {
-        let comment = format_result_comment(
-            "https://example.com/comment",
-            "test report\n",
-            "resources\n",
+    fn result_section_format() {
+        let machine = format_machine_details(
             "c4a-standard-48",
             "12 vCPU / 65 GiB",
+            "Linux node-1",
             "lscpu output",
-            "",
         );
-        assert!(comment.contains("Benchmark completed"));
-        assert!(comment.contains("[trigger](https://example.com/comment)"));
-        assert!(comment.contains("test report"));
-        assert!(comment.contains("<details>"));
-        assert!(comment.contains("Resource Usage"));
-        assert!(comment.contains("resources"));
-        assert!(comment.contains("c4a-standard-48"));
-        assert!(comment.contains("12 vCPU / 65 GiB"));
-        assert!(comment.contains("lscpu output"));
+        let section = format_result_section("test report\n", "resources\n", &machine);
+        assert!(section.contains("Benchmark completed"));
+        assert!(section.contains("test report"));
+        assert!(section.contains("<details>"));
+        assert!(section.contains("Resource Usage"));
+        assert!(section.contains("resources"));
+        assert!(section.contains("c4a-standard-48"));
+        assert!(section.contains("12 vCPU / 65 GiB"));
+        assert!(section.contains("Linux node-1"));
+        assert!(section.contains("lscpu output"));
+        // No trigger link — we now edit the trigger comment in place.
+        assert!(!section.contains("[trigger]"));
+    }
+
+    #[test]
+    fn machine_details_collapsed() {
+        let m = format_machine_details("c4a-1", "1 vCPU / 1 GiB", "uname-foo", "lscpu-foo");
+        assert!(m.starts_with("<details>"));
+        assert!(m.contains("Machine info"));
+        assert!(m.contains("c4a-1"));
+        assert!(m.contains("uname-foo"));
+        assert!(m.contains("lscpu-foo"));
     }
 
     #[test]
