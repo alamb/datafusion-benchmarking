@@ -1,27 +1,23 @@
 //! Minimal TCP-based HTTP server.
 //!
 //! Serves Kubernetes liveness/readiness probes plus a narrow
-//! `POST /jobs/{id}/comment` endpoint used by benchmark runner pods to update
-//! the trigger comment. The runner has no GitHub credentials of its own; it
-//! hands a markdown section body to the controller (authenticated with a
-//! per-job token injected at pod-creation time) and the controller PATCHes
-//! the trigger comment with the merged sections of all sibling jobs sharing
-//! that comment.
+//! `POST /jobs/{id}/comment` endpoint used by benchmark runner pods to post
+//! PR comments. The runner has no GitHub credentials of its own; it hands a
+//! markdown body to the controller (authenticated with a per-job token
+//! injected at pod-creation time) and the controller posts it via
+//! [`GitHubClient::post_comment`].
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::comment_render;
 use crate::db;
-use crate::github::{self, GitHubClient};
+use crate::github::GitHubClient;
 
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
 const NOT_FOUND: &[u8] = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
@@ -45,40 +41,9 @@ pub fn ready_flag() -> ReadyFlag {
     Arc::new(AtomicBool::new(false))
 }
 
-/// Per-trigger-comment async lock map. Serializes fetch+merge+PATCH for
-/// sibling jobs that share a trigger comment so they don't race when each
-/// posts its own section.
-pub type CommentLocks = Arc<Mutex<HashMap<i64, Arc<Mutex<()>>>>>;
-
-pub fn comment_locks() -> CommentLocks {
-    Arc::new(Mutex::new(HashMap::new()))
-}
-
-async fn lock_for_comment(locks: &CommentLocks, comment_id: i64) -> Arc<Mutex<()>> {
-    let mut map = locks.lock().await;
-    map.entry(comment_id)
-        .or_insert_with(|| Arc::new(Mutex::new(())))
-        .clone()
-}
-
-/// Configuration that the section-update handler needs beyond the per-request
-/// state: the runner-repo footer URL is invariant for the lifetime of the
-/// process and shared across all sections.
-#[derive(Clone)]
-pub struct ServerConfig {
-    pub runner_repo_url: Option<String>,
-}
-
 /// Listen on `0.0.0.0:8080` and serve `/healthz`, `/readyz`, and
 /// `POST /jobs/{id}/comment`.
-pub async fn serve(
-    token: CancellationToken,
-    ready: ReadyFlag,
-    pool: SqlitePool,
-    gh: GitHubClient,
-    locks: CommentLocks,
-    server_config: ServerConfig,
-) {
+pub async fn serve(token: CancellationToken, ready: ReadyFlag, pool: SqlitePool, gh: GitHubClient) {
     let listener = TcpListener::bind("0.0.0.0:8080")
         .await
         .expect("failed to bind health port 8080");
@@ -99,24 +64,15 @@ pub async fn serve(
         let ready = ready.clone();
         let pool = pool.clone();
         let gh = gh.clone();
-        let locks = locks.clone();
-        let server_config = server_config.clone();
-        tokio::spawn(handle_conn(stream, ready, pool, gh, locks, server_config));
+        tokio::spawn(handle_conn(stream, ready, pool, gh));
     }
 
     info!("http server stopped");
 }
 
-async fn handle_conn(
-    mut stream: TcpStream,
-    ready: ReadyFlag,
-    pool: SqlitePool,
-    gh: GitHubClient,
-    locks: CommentLocks,
-    server_config: ServerConfig,
-) {
+async fn handle_conn(mut stream: TcpStream, ready: ReadyFlag, pool: SqlitePool, gh: GitHubClient) {
     let response: Vec<u8> = match read_request(&mut stream).await {
-        Ok(Some(req)) => match route(&req, &ready, &pool, &gh, &locks, &server_config).await {
+        Ok(Some(req)) => match route(&req, &ready, &pool, &gh).await {
             Ok(bytes) => bytes,
             Err(e) => {
                 tracing::warn!(error = %e, "handler error");
@@ -140,8 +96,6 @@ async fn route(
     ready: &ReadyFlag,
     pool: &SqlitePool,
     gh: &GitHubClient,
-    locks: &CommentLocks,
-    server_config: &ServerConfig,
 ) -> anyhow::Result<Vec<u8>> {
     // Liveness
     if req.method == "GET" && req.path == "/healthz" {
@@ -158,7 +112,7 @@ async fn route(
     // POST /jobs/{id}/comment
     if req.method == "POST" {
         if let Some(job_id) = parse_job_comment_path(&req.path) {
-            return handle_job_comment(req, job_id, pool, gh, locks, server_config).await;
+            return handle_job_comment(req, job_id, pool, gh).await;
         }
     }
     Ok(NOT_FOUND.to_vec())
@@ -169,8 +123,6 @@ async fn handle_job_comment(
     job_id: i64,
     pool: &SqlitePool,
     gh: &GitHubClient,
-    locks: &CommentLocks,
-    server_config: &ServerConfig,
 ) -> anyhow::Result<Vec<u8>> {
     // Auth: `Authorization: Bearer <token>` must match the row's runner_token.
     let bearer = match req.header("authorization") {
@@ -189,7 +141,7 @@ async fn handle_job_comment(
         Some(r) => r,
         None => return Ok(NOT_FOUND.to_vec()),
     };
-    let (repo, _pr_number, status, stored_token, comment_id) = row;
+    let (repo, pr_number, status, stored_token) = row;
     match stored_token {
         Some(tok) if constant_time_eq(tok.as_bytes(), supplied.as_bytes()) => {}
         _ => return Ok(UNAUTHORIZED.to_vec()),
@@ -218,48 +170,8 @@ async fn handle_job_comment(
         return Ok(BAD_REQUEST.to_vec());
     }
 
-    // Serialize fetch+merge+PATCH per trigger comment so sibling jobs don't
-    // race. The lock is only held by this controller — direct-mode runners
-    // (main-tracking) do their own update without going through here.
-    update_trigger_comment(
-        pool,
-        gh,
-        locks,
-        server_config.runner_repo_url.as_deref(),
-        job_id,
-        &repo,
-        comment_id,
-        &payload.body,
-    )
-    .await?;
+    gh.post_comment(&repo, pr_number, &payload.body).await?;
     Ok(OK.to_vec())
-}
-
-/// Set this job's section body, then re-render and PATCH the trigger comment.
-/// Holds the per-comment lock for the entire fetch+merge+PATCH so sibling
-/// runners' updates don't interleave.
-#[allow(clippy::too_many_arguments)]
-pub async fn update_trigger_comment(
-    pool: &SqlitePool,
-    gh: &GitHubClient,
-    locks: &CommentLocks,
-    runner_repo_url: Option<&str>,
-    job_id: i64,
-    repo: &str,
-    comment_id: i64,
-    section_body: &str,
-) -> anyhow::Result<()> {
-    let lock = lock_for_comment(locks, comment_id).await;
-    let _guard = lock.lock().await;
-
-    db::set_section_body(pool, job_id, section_body).await?;
-    let sections = db::get_sections_for_comment(pool, comment_id).await?;
-    let section_bodies: Vec<String> = sections.into_iter().map(|(_, body)| body).collect();
-    let original = gh.get_comment_body(repo, comment_id).await?;
-    let footer = github::issues_footer(runner_repo_url);
-    let new_body = comment_render::render(&original, &section_bodies, &footer);
-    gh.update_comment(repo, comment_id, &new_body).await?;
-    Ok(())
 }
 
 fn parse_job_comment_path(path: &str) -> Option<i64> {

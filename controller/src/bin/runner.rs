@@ -6,6 +6,7 @@
 use anyhow::Result;
 use tracing::{error, info};
 
+use benchmark_controller::github;
 use benchmark_controller::runner::config::{BenchType, RunnerConfig};
 use benchmark_controller::runner::poster::CommentPoster;
 use benchmark_controller::runner::{bench_arrow, bench_criterion, bench_standard, shell};
@@ -66,25 +67,27 @@ async fn run_benchmark(config: &RunnerConfig, poster: &CommentPoster) -> Result<
 async fn post_error_comment(config: &RunnerConfig, poster: &CommentPoster) {
     let tail = shell::tail_log(20).await;
 
+    let footer = github::issues_footer(config.runner_repo_url.as_deref());
     let body = format!(
-        "\u{1f6a8} **Benchmark failed**\n\n\
+        "Benchmark for [this request]({}) failed.\n\n\
          Last 20 lines of output:\n\
          <details><summary>Click to expand</summary>\n\n\
          ```\n\
          {tail}\n\
          ```\n\n\
-         </details>"
+         </details>{footer}",
+        config.comment_url,
     );
 
-    let comment_id = match config.comment_id_i64() {
+    let pr_number = match config.pr_number() {
         Ok(n) => n,
         Err(e) => {
-            error!(error = %e, "cannot post error section: failed to parse comment id");
+            error!(error = %e, "cannot post error comment: failed to parse PR number");
             return;
         }
     };
 
-    if let Err(e) = poster.update_section(&config.repo, comment_id, &body).await {
-        error!(error = %e, "failed to post error section");
+    if let Err(e) = poster.post_comment(&config.repo, pr_number, &body).await {
+        error!(error = %e, "failed to post error comment");
     }
 }

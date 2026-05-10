@@ -128,50 +128,19 @@ pub async fn set_runner_token(pool: &SqlitePool, job_id: i64, token: &str) -> Re
     Ok(())
 }
 
-/// Look up a running job by id and return its stored runner token, repo, PR
-/// number, and the trigger comment id. Returns `None` if the job doesn't exist.
+/// Look up a running job by id and return its stored runner token, repo, and
+/// PR number. Returns `None` if the job doesn't exist.
 pub async fn get_job_for_comment(
     pool: &SqlitePool,
     job_id: i64,
-) -> Result<Option<(String, i64, String, Option<String>, i64)>> {
-    let row = sqlx::query_as::<_, (String, i64, String, Option<String>, i64)>(
-        "SELECT repo, pr_number, status, runner_token, comment_id \
-         FROM benchmark_jobs WHERE id = ?",
+) -> Result<Option<(String, i64, String, Option<String>)>> {
+    let row = sqlx::query_as::<_, (String, i64, String, Option<String>)>(
+        "SELECT repo, pr_number, status, runner_token FROM benchmark_jobs WHERE id = ?",
     )
     .bind(job_id)
     .fetch_optional(pool)
     .await?;
     Ok(row)
-}
-
-/// Persist the markdown section a runner wants displayed on the trigger
-/// comment for this job. Replaces any prior section body for the same job.
-pub async fn set_section_body(pool: &SqlitePool, job_id: i64, body: &str) -> Result<()> {
-    sqlx::query(
-        "UPDATE benchmark_jobs SET section_body = ?, updated_at = datetime('now') WHERE id = ?",
-    )
-    .bind(body)
-    .bind(job_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-/// Return all (job_id, section_body) pairs for jobs sharing a trigger comment,
-/// in insertion order, skipping jobs whose section hasn't been set yet.
-pub async fn get_sections_for_comment(
-    pool: &SqlitePool,
-    comment_id: i64,
-) -> Result<Vec<(i64, String)>> {
-    let rows = sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, section_body FROM benchmark_jobs \
-         WHERE comment_id = ? AND section_body IS NOT NULL \
-         ORDER BY id",
-    )
-    .bind(comment_id)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows)
 }
 
 /// Return all jobs with status `running`.
@@ -443,61 +412,14 @@ mod tests {
 
         set_runner_token(&pool, id, "secret-abc").await.unwrap();
 
-        let (repo, pr, status, token, comment_id) =
-            get_job_for_comment(&pool, id).await.unwrap().unwrap();
+        let (repo, pr, status, token) = get_job_for_comment(&pool, id).await.unwrap().unwrap();
         assert_eq!(repo, "apache/datafusion");
         assert_eq!(pr, 42);
         assert_eq!(status, "pending");
         assert_eq!(token.as_deref(), Some("secret-abc"));
-        assert_eq!(comment_id, 2000);
 
         // Missing job
         assert!(get_job_for_comment(&pool, 99_999).await.unwrap().is_none());
-    }
-
-    // ── section_body helpers ────────────────────────────────────────
-
-    #[tokio::test]
-    async fn section_body_round_trip_and_aggregate() {
-        let pool = test_pool().await;
-        mark_comment_seen(&pool, 3000, "apache/datafusion", 42, "alice", "2024-01-01")
-            .await
-            .unwrap();
-        let id_a = insert_job(&pool, &test_job(3000)).await.unwrap();
-        let id_b = insert_job(&pool, &test_job(3000)).await.unwrap();
-
-        // Initially neither job has a section body
-        assert!(get_sections_for_comment(&pool, 3000)
-            .await
-            .unwrap()
-            .is_empty());
-
-        set_section_body(&pool, id_a, "running tpch").await.unwrap();
-        let sections = get_sections_for_comment(&pool, 3000).await.unwrap();
-        assert_eq!(sections, vec![(id_a, "running tpch".to_string())]);
-
-        set_section_body(&pool, id_b, "running clickbench")
-            .await
-            .unwrap();
-        // Replace job A's section body
-        set_section_body(&pool, id_a, "completed tpch")
-            .await
-            .unwrap();
-
-        let sections = get_sections_for_comment(&pool, 3000).await.unwrap();
-        assert_eq!(
-            sections,
-            vec![
-                (id_a, "completed tpch".to_string()),
-                (id_b, "running clickbench".to_string()),
-            ]
-        );
-
-        // A different comment_id should not see these sections
-        assert!(get_sections_for_comment(&pool, 9999)
-            .await
-            .unwrap()
-            .is_empty());
     }
 
     // ── update_job_status + get_active_jobs ─────────────────────────

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use tracing::{info, warn};
 
-use crate::runner::bench_standard::format_machine_details;
+use crate::github;
 use crate::runner::config::RunnerConfig;
 use crate::runner::git;
 use crate::runner::monitor;
@@ -59,7 +59,7 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
     // Pre-install stable toolchain to avoid rustup race in parallel builds
     git::rustup_stable().await?;
 
-    // Post "running" section
+    // Post "running" comment
     let uname = shell::uname().await;
     let instance_type = shell::node_instance_type().await;
     let pod_resources = shell::pod_resources();
@@ -75,20 +75,27 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
     } else {
         format!("{} (merge-base)", &base_sha[..7.min(base_sha.len())])
     };
-    let machine_details = format_machine_details(&instance_type, &pod_resources, &uname, &lscpu);
-    let running_section = format!(
-        "\u{1f916} **Arrow criterion benchmark running (GKE)**\n\n\
+    let footer = github::issues_footer(config.runner_repo_url.as_deref());
+    let running_body = format!(
+        "\u{1f916} Arrow criterion benchmark running (GKE) | [trigger]({})\n\
+         **Instance:** `{instance_type}` ({pod_resources}) | `{uname}`\n\
+         <details><summary>CPU Details (lscpu)</summary>\n\n\
+         ```\n\
+         {lscpu}\n\
+         ```\n\n\
+         </details>\n\n\
          Comparing {changed_display} ({changed_sha}) to {baseline_label} \
          [diff](https://github.com/{repo}/compare/{base_sha}..{changed_sha})\n\
          BENCH_NAME={bench_name}\n\
          BENCH_COMMAND={bench_command_display}\n\
-         BENCH_FILTER={bench_filter}\n\n\
-         {machine_details}",
+         BENCH_FILTER={bench_filter}\n\
+         Results will be posted here when complete{footer}",
+        config.comment_url,
         repo = config.repo,
     );
-    let comment_id = config.comment_id_i64()?;
+    let pr_number = config.pr_number()?;
     poster
-        .update_section(&config.repo, comment_id, &running_section)
+        .post_comment(&config.repo, pr_number, &running_body)
         .await?;
 
     // Compile both in parallel
@@ -171,7 +178,7 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
     };
 
     // Compare and post results
-    let result_section = if baseline_available {
+    let result_body = if baseline_available {
         // Copy baselines into one target dir for critcmp
         copy_criterion_baselines(&base_dir, &branch_dir).await;
 
@@ -184,7 +191,15 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
             monitor::format_resource_comment("base (merge-base)", &base_stats.unwrap()),
             monitor::format_resource_comment("branch", &branch_stats),
         );
-        format_result_section(&report, &resource_section, &machine_details)
+        format_result_comment(
+            &config.comment_url,
+            &report,
+            &resource_section,
+            &instance_type,
+            &pod_resources,
+            &lscpu,
+            &footer,
+        )
     } else {
         let report = shell::run_command("critcmp", &[bench_branch_name.as_str()], &branch_dir)
             .await
@@ -192,10 +207,18 @@ pub async fn run(config: &RunnerConfig, poster: &CommentPoster) -> Result<()> {
 
         let resource_section =
             monitor::format_resource_comment("branch", &branch_stats).to_string();
-        format_branch_only_result_section(&report, &resource_section, &machine_details)
+        format_branch_only_result_comment(
+            &config.comment_url,
+            &report,
+            &resource_section,
+            &instance_type,
+            &pod_resources,
+            &lscpu,
+            &footer,
+        )
     };
     poster
-        .update_section(&config.repo, comment_id, &result_section)
+        .post_comment(&config.repo, pr_number, &result_body)
         .await?;
 
     Ok(())
@@ -229,10 +252,24 @@ async fn copy_criterion_baselines(base_dir: &Path, branch_dir: &Path) {
     }
 }
 
-/// Format the per-job "completed" section for a baseline-comparison run.
-fn format_result_section(report: &str, resource_section: &str, machine_details: &str) -> String {
+/// Format the result comment body.
+fn format_result_comment(
+    comment_url: &str,
+    report: &str,
+    resource_section: &str,
+    instance_type: &str,
+    pod_resources: &str,
+    lscpu: &str,
+    footer: &str,
+) -> String {
     format!(
-        "\u{1f916} **Arrow criterion benchmark completed (GKE)**\n\n\
+        "\u{1f916} Arrow criterion benchmark completed (GKE) | [trigger]({comment_url})\n\n\
+         **Instance:** `{instance_type}` ({pod_resources})\n\n\
+         <details><summary>CPU Details (lscpu)</summary>\n\n\
+         ```\n\
+         {lscpu}\n\
+         ```\n\n\
+         </details>\n\n\
          <details><summary>Details</summary>\n\
          <p>\n\n\
          ```\n\
@@ -242,19 +279,29 @@ fn format_result_section(report: &str, resource_section: &str, machine_details: 
          </details>\n\n\
          <details><summary>Resource Usage</summary>\n\n\
          {resource_section}\
-         </details>\n\n\
-         {machine_details}"
+         </details>\n\
+         {footer}"
     )
 }
 
-/// Format the per-job "completed" section for branch-only runs.
-fn format_branch_only_result_section(
+/// Format the result comment body for branch-only runs (no baseline comparison).
+fn format_branch_only_result_comment(
+    comment_url: &str,
     report: &str,
     resource_section: &str,
-    machine_details: &str,
+    instance_type: &str,
+    pod_resources: &str,
+    lscpu: &str,
+    footer: &str,
 ) -> String {
     format!(
-        "\u{1f916} **Arrow criterion benchmark completed (GKE)**\n\n\
+        "\u{1f916} Arrow criterion benchmark completed (GKE) | [trigger]({comment_url})\n\n\
+         **Instance:** `{instance_type}` ({pod_resources})\n\n\
+         <details><summary>CPU Details (lscpu)</summary>\n\n\
+         ```\n\
+         {lscpu}\n\
+         ```\n\n\
+         </details>\n\n\
          **New benchmark — branch-only results (no baseline comparison)**\n\n\
          <details><summary>Details</summary>\n\
          <p>\n\n\
@@ -265,8 +312,8 @@ fn format_branch_only_result_section(
          </details>\n\n\
          <details><summary>Resource Usage</summary>\n\n\
          {resource_section}\
-         </details>\n\n\
-         {machine_details}"
+         </details>\n\
+         {footer}"
     )
 }
 
@@ -294,41 +341,44 @@ mod tests {
     }
 
     #[test]
-    fn result_section_format() {
-        let machine = format_machine_details(
+    fn result_comment_format() {
+        let comment = format_result_comment(
+            "https://example.com/comment",
+            "test report\n",
+            "resources\n",
             "c4a-standard-48",
             "12 vCPU / 65 GiB",
-            "uname",
             "lscpu output",
+            "",
         );
-        let section = format_result_section("test report\n", "resources\n", &machine);
-        assert!(section.contains("Arrow criterion benchmark completed"));
-        assert!(section.contains("test report"));
-        assert!(section.contains("Resource Usage"));
-        assert!(section.contains("c4a-standard-48"));
-        assert!(section.contains("12 vCPU / 65 GiB"));
-        assert!(section.contains("lscpu output"));
-        assert!(!section.contains("[trigger]"));
+        assert!(comment.contains("Arrow criterion benchmark completed"));
+        assert!(comment.contains("[trigger](https://example.com/comment)"));
+        assert!(comment.contains("test report"));
+        assert!(comment.contains("Resource Usage"));
+        assert!(comment.contains("c4a-standard-48"));
+        assert!(comment.contains("12 vCPU / 65 GiB"));
+        assert!(comment.contains("lscpu output"));
     }
 
     #[test]
-    fn branch_only_result_section_format() {
-        let machine = format_machine_details(
+    fn branch_only_result_comment_format() {
+        let comment = format_branch_only_result_comment(
+            "https://example.com/comment",
+            "branch report\n",
+            "branch resources\n",
             "c4a-standard-48",
             "12 vCPU / 65 GiB",
-            "uname",
             "lscpu output",
+            "",
         );
-        let section =
-            format_branch_only_result_section("branch report\n", "branch resources\n", &machine);
-        assert!(section.contains("Arrow criterion benchmark completed"));
-        assert!(section.contains("New benchmark — branch-only results"));
-        assert!(section.contains("branch report"));
-        assert!(section.contains("Resource Usage"));
-        assert!(section.contains("branch resources"));
-        assert!(section.contains("c4a-standard-48"));
-        assert!(section.contains("12 vCPU / 65 GiB"));
-        assert!(section.contains("lscpu output"));
-        assert!(!section.contains("[trigger]"));
+        assert!(comment.contains("Arrow criterion benchmark completed"));
+        assert!(comment.contains("New benchmark — branch-only results"));
+        assert!(comment.contains("[trigger](https://example.com/comment)"));
+        assert!(comment.contains("branch report"));
+        assert!(comment.contains("Resource Usage"));
+        assert!(comment.contains("branch resources"));
+        assert!(comment.contains("c4a-standard-48"));
+        assert!(comment.contains("12 vCPU / 65 GiB"));
+        assert!(comment.contains("lscpu output"));
     }
 }

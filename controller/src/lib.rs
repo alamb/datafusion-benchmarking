@@ -1,5 +1,4 @@
 pub mod benchmarks;
-pub mod comment_render;
 pub mod config;
 pub mod db;
 pub mod github;
