@@ -47,22 +47,32 @@ GitHub PR comment                        GitHub PR
 
 Comment on a PR in `apache/datafusion` or `apache/arrow-rs`:
 
-```
+```yaml
 run benchmarks
 ```
 
 Or run specific benchmarks:
 
-```
+```yaml
 run benchmark tpch_mem clickbench_partitioned
+```
+
+Or run specific benchmark suite with only a subset of commands
+
+```yaml
+run benchmark arrow_writer
+
+env:
+  BENCH_FILTER: float
 ```
 
 ### Comparing specific branches or commits
 
-By default, benchmarks compare the PR's merge base (baseline) against the PR head (changed). You can override either side with any git ref (branch, tag, or commit SHA):
+By default, benchmarks compare the PR's merge base (baseline) against the PR head (changed). You can override either side with any git ref (branch, tag, or commit SHA) using YAML:
 
 ```yaml
 run benchmark tpch
+
 baseline:
   ref: v45.0.0
 changed:
