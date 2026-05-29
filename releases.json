@@ -1,5 +1,9 @@
 [
   {
+    "revision": "branch-54",
+    "label": "54.0.0"
+  },
+  {
     "revision": "53.0.0-rc3",
     "label": "53.0.0"
   },
