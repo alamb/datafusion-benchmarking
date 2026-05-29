@@ -14,9 +14,13 @@ wait
 #DATAFUSION_DIR=datafusion3 ./build_datafusion_cli.sh 50.0.0 &
 
 wait
-DATAFUSION_DIR=datafusion ./build_datafusion_cli.sh 50.0.0 &
-DATAFUSION_DIR=datafusion1 ./build_datafusion_cli.sh 51.0.0 &
-DATAFUSION_DIR=datafusion2 ./build_datafusion_cli.sh 52.0.0 &
-DATAFUSION_DIR=datafusion3 ./build_datafusion_cli.sh 53.0.0-rc3 &
+#DATAFUSION_DIR=datafusion ./build_datafusion_cli.sh 50.0.0 &
+#DATAFUSION_DIR=datafusion1 ./build_datafusion_cli.sh 51.0.0 &
+#DATAFUSION_DIR=datafusion2 ./build_datafusion_cli.sh 52.0.0 &
+#DATAFUSION_DIR=datafusion3 ./build_datafusion_cli.sh 53.0.0-rc3 &
+wait
+
+DATAFUSION_DIR=datafusion ./build_datafusion_cli.sh 53.1.0 &
+DATAFUSION_DIR=datafusion2 ./build_datafusion_cli.sh branch-54 &
 
 wait
