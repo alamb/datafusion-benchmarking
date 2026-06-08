@@ -160,6 +160,7 @@ show benchmark queue
 | `sort_pushdown_inexact` | Sort pushdown inexact |
 | `sort_pushdown_inexact_unsorted` | Sort pushdown inexact unsorted |
 | `sort_pushdown_inexact_overlap` | Sort pushdown inexact overlap |
+| `wide_schema` | Wide-schema parquet metadata overhead (1024 cols × 256 files; wide vs narrow) |
 
 ### DataFusion (criterion)
 
