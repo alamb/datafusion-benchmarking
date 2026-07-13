@@ -133,7 +133,7 @@ def generate_report(ctx, output_dir):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DataFusion ClickBench Performance Analysis</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -299,6 +299,12 @@ def generate_report(ctx, output_dir):
                         Show events
                     </label>
                 </div>
+                <div style="margin-top: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" id="showDetectedLines" checked onchange="updateCharts()" style="margin: 0;">
+                        Show detected changes
+                    </label>
+                </div>
                 <div id="filterDescription" style="margin-top: 10px; font-style: italic; color: #666;">
                     Releases and most recent git revision
                 </div>
@@ -357,6 +363,7 @@ def generate_report(ctx, output_dir):
             const filter = document.getElementById('timeFilter').value;
             const showReleaseLines = document.getElementById('showReleaseLines').checked;
             const showEventLines = document.getElementById('showEventLines').checked;
+            const showDetectedLines = document.getElementById('showDetectedLines').checked;
             const description = document.getElementById('filterDescription');
             
             let filteredPerformanceData, filteredQueryData, descText;
@@ -400,6 +407,12 @@ def generate_report(ctx, output_dir):
                 filteredPerformanceData = removeEventLines(filteredPerformanceData);
                 filteredQueryData = removeEventLines(filteredQueryData);
             }}
+
+            // If "Show detected changes" is unchecked, remove the detected event lines
+            if(!showDetectedLines) {{
+                filteredPerformanceData = removeDetectedLines(filteredPerformanceData);
+                filteredQueryData = removeDetectedLines(filteredQueryData);
+            }}
             
             description.textContent = descText;
             
@@ -435,6 +448,23 @@ def generate_report(ctx, output_dir):
             );
             newLayout.annotations = newLayout.annotations.filter(ann => 
                 ann.CUSTOM_ANNOTATION && ann.CUSTOM_ANNOTATION !== "event"
+            );
+            
+            return {{
+                data: chartObj.data,
+                layout: newLayout,
+                config: chartObj.config
+            }};
+        }}
+        
+        function removeDetectedLines(chartObj) {{
+            // Create a copy with detected event lines removed
+            const newLayout = {{...chartObj.layout}};
+            newLayout.shapes = newLayout.shapes.filter(shape => 
+                shape.CUSTOM_ANNOTATION && shape.CUSTOM_ANNOTATION !== "detected"
+            );
+            newLayout.annotations = newLayout.annotations.filter(ann => 
+                ann.CUSTOM_ANNOTATION && ann.CUSTOM_ANNOTATION !== "detected"
             );
             
             return {{
@@ -740,6 +770,17 @@ def create_performance_plotly_data(df, normalized=False):
     else:
         event_labels = {}
 
+    # Load detected event labels (from nightly regression detection) for vertical lines,
+    # de-duplicated by revision with hand-curated events.json taking precedence
+    detected_path = os.path.join(os.path.dirname(__file__), 'nightly', 'out', 'detected_events.json')
+    detected_labels = {}
+    if os.path.exists(detected_path):
+        try:
+            with open(detected_path, 'r') as f:
+                detected_labels = {item['revision']: item['label'] for item in json.load(f) if item['revision'] not in event_labels}
+        except (ValueError, KeyError, TypeError, OSError) as e:
+            print(f"Warning: could not load detected events from {detected_path}: {e}")
+
     # Map revision to timestamp for annotation
     rev_to_timestamp = df.groupby('git_revision')['git_revision_timestamp'].min().to_dict()
 
@@ -863,6 +904,44 @@ def create_performance_plotly_data(df, normalized=False):
                 "CUSTOM_ANNOTATION": "event"
             })
 
+    # Add vertical lines and annotations for detected events (orange dash-dot lines)
+    for rev, label in detected_labels.items():
+        if rev in rev_to_timestamp:
+            ts = rev_to_timestamp[rev];
+            if hasattr(ts, 'strftime'):
+                ts_str = ts.strftime('%Y-%m-%dT%H:%M:%S.%fZ');
+            else:
+                ts_str = pd.to_datetime(ts).strftime('%Y-%m-%dT%H:%M:%S.%fZ');
+
+            layout["shapes"].append({
+                "type": "line",
+                "x0": ts_str,
+                "x1": ts_str,
+                "y0": 0,
+                "y1": 1,
+                "yref": "paper",
+                "line": {
+                    "color": "orange",
+                    "width": 2,
+                    "dash": "dashdot"
+                },
+                "CUSTOM_ANNOTATION": "detected"
+            })
+
+            layout["annotations"].append({
+                "x": ts_str,
+                "y": 0.99,
+                "yref": "paper",
+                "text": f"Detected: {label}",
+                "showarrow": False,
+                "xanchor": "right",
+                "yanchor": "top",
+                "font": {"color": "orange", "size": 12},
+                "bgcolor": "rgba(255,255,255,0.7)",
+                "bordercolor": "orange",
+                "CUSTOM_ANNOTATION": "detected"
+            })
+
     config = {"responsive": True};
 
     return {"data": data, "layout": layout, "config": config}
@@ -888,6 +967,17 @@ def create_queries_plotly_data(df):
             event_labels = {item['revision']: item['label'] for item in json.load(f)}
     else:
         event_labels = {}
+
+    # Load detected event labels (from nightly regression detection) for vertical lines,
+    # de-duplicated by revision with hand-curated events.json taking precedence
+    detected_path = os.path.join(os.path.dirname(__file__), 'nightly', 'out', 'detected_events.json')
+    detected_labels = {}
+    if os.path.exists(detected_path):
+        try:
+            with open(detected_path, 'r') as f:
+                detected_labels = {item['revision']: item['label'] for item in json.load(f) if item['revision'] not in event_labels}
+        except (ValueError, KeyError, TypeError, OSError) as e:
+            print(f"Warning: could not load detected events from {detected_path}: {e}")
 
     # Map revision to timestamp for annotation
     rev_to_timestamp = df.groupby('git_revision')['git_revision_timestamp'].min().to_dict()
@@ -1006,6 +1096,44 @@ def create_queries_plotly_data(df):
 
             })
 
+    # Add vertical lines and annotations for detected events (orange dash-dot lines)
+    for rev, label in detected_labels.items():
+        if rev in rev_to_timestamp:
+            ts = rev_to_timestamp[rev];
+            if hasattr(ts, 'strftime'):
+                ts_str = ts.strftime('%Y-%m-%dT%H:%M:%S.%fZ');
+            else:
+                ts_str = pd.to_datetime(ts).strftime('%Y-%m-%dT%H:%M:%S.%fZ');
+
+            layout["shapes"].append({
+                "type": "line",
+                "x0": ts_str,
+                "x1": ts_str,
+                "y0": 0,
+                "y1": 1,
+                "yref": "paper",
+                "line": {
+                    "color": "orange",
+                    "width": 2,
+                    "dash": "dashdot"
+                },
+                "CUSTOM_ANNOTATION": "detected"
+            })
+
+            layout["annotations"].append({
+                "x": ts_str,
+                "y": 0.99,
+                "yref": "paper",
+                "text": f"Detected: {label}",
+                "showarrow": False,
+                "xanchor": "right",
+                "yanchor": "top",
+                "font": {"color": "orange", "size": 12},
+                "bgcolor": "rgba(255,255,255,0.7)",
+                "bordercolor": "orange",
+                "CUSTOM_ANNOTATION": "detected"
+            })
+
     return {
         "data": data,
         "layout": layout,
@@ -1028,8 +1156,25 @@ def load_release_data(ctx):
             # Find the most recent release
             most_recent_release = None
             if releases_info:
-                # Assuming releases.json is ordered by date, take the last one
-                most_recent_release = releases_info[-1]['revision']
+                # Pick the release with the latest git_revision_timestamp among
+                # releases actually present in the loaded data; fall back to the
+                # first entry (releases.json is ordered newest-first)
+                try:
+                    result = ctx.sql("""
+                    SELECT git_revision, MAX(git_revision_timestamp) as ts
+                    FROM benchmark_results
+                    WHERE query_type = 'query'
+                    GROUP BY git_revision
+                    """)
+                    rev_ts_df = result.to_pandas()
+                    rev_ts = dict(zip(rev_ts_df['git_revision'], rev_ts_df['ts']))
+                except:
+                    rev_ts = {}
+                releases_in_data = [rev for rev in releases if rev in rev_ts]
+                if releases_in_data:
+                    most_recent_release = max(releases_in_data, key=lambda rev: pd.to_datetime(rev_ts[rev], utc=True))
+                else:
+                    most_recent_release = releases_info[0]['revision']
     else:
         releases = []
         most_recent_release = None
