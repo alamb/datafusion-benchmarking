@@ -1,0 +1,19 @@
+# datafusion-nightly.timer - fires datafusion-nightly.service at 02:00 UTC daily.
+#
+# Install: see the comment block in datafusion-nightly.service (copy BOTH files,
+# systemctl daemon-reload, then `systemctl enable --now datafusion-nightly.timer`;
+# add --user for a user unit).
+#
+# Persistent=true: if the box was down or asleep at 02:00 UTC, the run fires as
+# soon as it is back up instead of silently skipping that day.
+
+[Unit]
+Description=DataFusion nightly benchmark timer
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+Unit=datafusion-nightly.service
+
+[Install]
+WantedBy=timers.target

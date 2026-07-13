@@ -1,0 +1,42 @@
+# datafusion-nightly.service - one nightly DataFusion benchmark pass.
+#
+# Companion to datafusion-nightly.timer, which triggers this service at
+# 02:00 UTC daily. Before installing, replace every REPLACE_ME below:
+#   User=REPLACE_ME              -> the benchmark user (e.g. bench)
+#   WorkingDirectory=REPLACE_ME  -> absolute path of this repo checkout
+#   ExecStart=REPLACE_ME/...     -> same absolute repo path
+#
+# Install as a SYSTEM unit (recommended; survives logout and may use Nice=-5):
+#   sudo cp nightly/systemd/datafusion-nightly.service \
+#           nightly/systemd/datafusion-nightly.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now datafusion-nightly.timer
+#   systemctl list-timers datafusion-nightly.timer     # verify the next run
+#
+# Or as a USER unit (no root needed; remove the User= line below, and drop
+# Nice=-5 too - negative nice values are not allowed for user units):
+#   mkdir -p ~/.config/systemd/user
+#   cp nightly/systemd/datafusion-nightly.service \
+#      nightly/systemd/datafusion-nightly.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now datafusion-nightly.timer
+#   loginctl enable-linger $USER   # so the timer fires without a login session
+#
+# Logs: journalctl -u datafusion-nightly.service (plus nightly/logs/ files).
+
+[Unit]
+Description=DataFusion nightly benchmark run
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=REPLACE_ME
+WorkingDirectory=REPLACE_ME
+ExecStart=REPLACE_ME/nightly/nightly.sh
+Nice=-5
+# Type=oneshot has no start timeout by default; cap it so a wedged build or
+# benchmark cannot hold the flock forever.
+TimeoutStartSec=12h
+# Optional: failure notification hook consumed by nightly.sh, e.g.
+#Environment=NIGHTLY_NOTIFY_CMD=/usr/local/bin/notify-bench-failure

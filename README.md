@@ -38,7 +38,7 @@ The directory structure is as follows:
 ## TODOs:
 1. Automate parallel builds of multiple DataFusion versions
 2. Rerun benchmarks on a dedicated machine (ec2 metal?)
-3. Rerun the benchmarks on a regular basis (cron job?)
+3. ~~Rerun the benchmarks on a regular basis (cron job?)~~ (see [nightly/](nightly/))
 
 
 1. Add clickbench extended queries
@@ -96,18 +96,11 @@ You can then produce reports using the provided report generator script
 
 ## Automation
 
-TODO: create a cron job or similar to automate the daily builds and tests.
-Ideally it will automatically build datafusion-cli for all commits in the last day
-and run the benchmarks, storing the results for later analysis.
-
-builds.sh (remaining builds)
-
-Then we'll generate the benchmark results
-
-Then we'll do some charting and analaysis along with starting to automate the daily builds
-
-
-
+The daily builds, benchmark runs, statistical regression detection, and
+dashboard publishing are automated by the scripts in [`nightly/`](nightly/),
+driven by cron or a systemd timer. See [nightly/README.md](nightly/README.md)
+for setup on a fresh benchmark box, configuration, scheduling, and how to
+interpret regression alerts.
 
 
 

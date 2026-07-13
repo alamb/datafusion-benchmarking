@@ -1,0 +1,7 @@
+# Runtime artifacts of the nightly automation.
+# NOTE: nightly/out/ is deliberately NOT ignored - the config-gated publish
+# step commits it (see config.json publish.paths).
+.shlock
+.lock
+logs/
+__pycache__/

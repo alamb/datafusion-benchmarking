@@ -1,0 +1,14 @@
+# crontab.example - install the nightly DataFusion benchmark run under plain cron.
+#
+# 1. Replace REPLACE_ME with the absolute path of this repo checkout.
+# 2. Run `mkdir -p REPLACE_ME/nightly/logs` once so the >> redirect below has a
+#    directory to write into on the very first fire.
+# 3. Install with `crontab -e` as the benchmark user and paste the line below.
+#
+# Overlap safety: nightly.sh takes an exclusive, non-blocking flock(1) on
+# nightly/.shlock and exits immediately if a previous run still holds it, so a
+# run that outlives 24h never stacks up behind this cron entry.
+#
+# Note: cron interprets 02:17 in the box's local cron timezone; the systemd
+# timer variant in nightly/systemd/ pins 02:00 UTC explicitly if you need that.
+17 2 * * * cd REPLACE_ME && ./nightly/nightly.sh >> nightly/logs/cron.log 2>&1

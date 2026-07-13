@@ -1,0 +1,22 @@
+{
+  "datafusion_dir": "datafusion",
+  "days": 2,
+  "num_builds": 2,
+  "results_dir": "results",
+  "benchmarks": ["clickbench"],
+  "detect": {
+    "window": 60,
+    "min_delta_pct": 2.0,
+    "iqr_multiplier": 3.0,
+    "pvalue": 0.05,
+    "permutations": 199
+  },
+  "check_env": false,
+  "prune_builds_keep": 30,
+  "publish": {
+    "enabled": false,
+    "remote": "origin",
+    "branch": "main",
+    "paths": ["results", "docs", "nightly/out"]
+  }
+}
