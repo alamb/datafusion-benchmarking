@@ -158,6 +158,33 @@ class TestLoadResults(CsvTestCase):
         with self.assertRaises(FileNotFoundError):
             detect.load_results(self.tmp)
 
+    def test_nul_bytes_and_bad_utf8_tolerated(self):
+        # csv.reader raises "line contains NUL" on raw NUL bytes, and strict
+        # utf-8 decoding raises on invalid bytes; a single corrupted results
+        # file must not abort the whole nightly run
+        lines = synth_csv_lines({'q1': [1.0, 1.1]})
+        path = os.path.join(self.tmp, 'results.csv')
+        write_csv(path, lines)
+        with open(path, 'ab') as fh:
+            fh.write(b'clickbench_partitioned,q\x00N,query,1.0,'
+                     b'2025-01-05 08:00:00,r009,2025-01-05T00:00:00+00:00,8\n')
+            fh.write(b'\xff\xfe not,a,valid,utf8,row\n')
+        rows = detect.load_results(self.tmp)
+        # NUL is stripped, so the q\x00N row survives as qN; the undecodable
+        # row is short and gets skipped as malformed
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(len([r for r in rows if r['query_name'] == 'qN']), 1)
+
+    def test_oversized_field_skips_file_not_run(self):
+        # an unterminated quote makes csv accumulate one giant field until it
+        # exceeds field_size_limit and raises csv.Error; that must skip the
+        # rest of the corrupted file, not abort the whole run
+        lines = synth_csv_lines({'q1': [1.0, 1.1]})
+        write_csv(os.path.join(self.tmp, 'a.csv'), lines)
+        write_csv(os.path.join(self.tmp, 'b.csv'), ['"' + 'x' * 200000])
+        rows = detect.load_results(self.tmp)
+        self.assertEqual(len(rows), 6)
+
 
 class TestBuildSeries(CsvTestCase):
     def test_ragged_queries(self):

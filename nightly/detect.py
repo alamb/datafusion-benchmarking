@@ -82,6 +82,9 @@ def load_results(results_dir):
     - only query_type == 'query' rows are kept;
     - malformed rows (too few columns, non-numeric execution_time,
       unparseable git_revision_timestamp) are skipped with a warning count;
+    - NUL bytes are stripped, undecodable bytes are replaced, and any other
+      csv.Error (e.g. a field exceeding the csv field-size limit) skips the
+      remainder of that file, so a corrupted file cannot abort the run;
     - identical (benchmark_name, git_revision, query_name, execution_time,
       run_timestamp) rows are de-duplicated across files, multiplicity-aware:
       the Nth duplicate within one file only collapses with the Nth duplicate
@@ -99,49 +102,58 @@ def load_results(results_dir):
     skipped = 0
     for path in paths:
         occurrences = {}
-        with open(path, 'r', newline='', encoding='utf-8') as fh:
-            reader = csv.reader(fh)
-            first = True
-            for record in reader:
-                if not record or all(not field.strip() for field in record):
-                    continue
-                if first:
-                    first = False
-                    if record[0].strip() == 'benchmark_name':
-                        continue  # header row present
-                if len(record) < len(CSV_COLUMNS):
-                    skipped += 1
-                    continue
-                row = dict(zip(CSV_COLUMNS, record))
-                if row['query_type'].strip() != 'query':
-                    continue
-                try:
-                    exec_time = float(row['execution_time'])
-                except ValueError:
-                    skipped += 1
-                    continue
-                rev_ts = parse_timestamp(row['git_revision_timestamp'])
-                if rev_ts is None:
-                    skipped += 1
-                    continue
-                base_key = (row['benchmark_name'], row['git_revision'],
-                            row['query_name'], row['execution_time'],
-                            row['run_timestamp'])
-                occurrence = occurrences.get(base_key, 0)
-                occurrences[base_key] = occurrence + 1
-                key = base_key + (occurrence,)
-                if key in seen:
-                    continue
-                seen.add(key)
-                rows.append({
-                    'benchmark_name': row['benchmark_name'].strip(),
-                    'query_name': row['query_name'].strip(),
-                    'execution_time': exec_time,
-                    'run_timestamp': row['run_timestamp'].strip(),
-                    'git_revision': row['git_revision'].strip(),
-                    'git_revision_timestamp': row['git_revision_timestamp'].strip(),
-                    'revision_dt': rev_ts,
-                })
+        try:
+            with open(path, 'r', newline='', encoding='utf-8',
+                      errors='replace') as fh:
+                # csv.reader raises on NUL bytes ("line contains NUL"); strip
+                # them so one corrupted file cannot break the whole nightly run
+                reader = csv.reader(line.replace('\0', '') for line in fh)
+                first = True
+                for record in reader:
+                    if not record or all(not field.strip() for field in record):
+                        continue
+                    if first:
+                        first = False
+                        if record[0].strip() == 'benchmark_name':
+                            continue  # header row present
+                    if len(record) < len(CSV_COLUMNS):
+                        skipped += 1
+                        continue
+                    row = dict(zip(CSV_COLUMNS, record))
+                    if row['query_type'].strip() != 'query':
+                        continue
+                    try:
+                        exec_time = float(row['execution_time'])
+                    except ValueError:
+                        skipped += 1
+                        continue
+                    rev_ts = parse_timestamp(row['git_revision_timestamp'])
+                    if rev_ts is None:
+                        skipped += 1
+                        continue
+                    base_key = (row['benchmark_name'], row['git_revision'],
+                                row['query_name'], row['execution_time'],
+                                row['run_timestamp'])
+                    occurrence = occurrences.get(base_key, 0)
+                    occurrences[base_key] = occurrence + 1
+                    key = base_key + (occurrence,)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rows.append({
+                        'benchmark_name': row['benchmark_name'].strip(),
+                        'query_name': row['query_name'].strip(),
+                        'execution_time': exec_time,
+                        'run_timestamp': row['run_timestamp'].strip(),
+                        'git_revision': row['git_revision'].strip(),
+                        'git_revision_timestamp': row['git_revision_timestamp'].strip(),
+                        'revision_dt': rev_ts,
+                    })
+        except csv.Error as exc:
+            # e.g. a field exceeding csv.field_size_limit() in a truncated or
+            # binary file; keep whatever parsed before the error
+            print('warning: skipping rest of %s: %s' % (path, exc),
+                  file=sys.stderr)
     if skipped:
         print('warning: skipped %d malformed row(s)' % skipped, file=sys.stderr)
     return rows

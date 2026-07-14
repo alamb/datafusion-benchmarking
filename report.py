@@ -520,6 +520,9 @@ def generate_report(ctx, output_dir):
             
             // For short periods (week/month), only include the most recent release and recent data
             const mostRecentRelease = releaseData.mostRecentRelease;
+            // Annotation text uses the release *label* (e.g. "54.0.0"), which can
+            // differ from the revision (e.g. "branch-54"), so match on the label
+            const mostRecentReleaseLabel = releaseData.mostRecentReleaseLabel;
             
             const filteredData = chartObj.data.map(trace => {{
                 const filteredX = [];
@@ -567,8 +570,8 @@ def generate_report(ctx, output_dir):
                     
                     // For month views, only show most recent release OR releases within time range
                     if(days <= 30) {{
-                        return chartObj.layout.annotations && chartObj.layout.annotations.some(ann => 
-                            ann.x === shape.x0 && ann.text && ann.text.includes(mostRecentRelease)
+                        return mostRecentReleaseLabel && chartObj.layout.annotations && chartObj.layout.annotations.some(ann =>
+                            ann.x === shape.x0 && ann.text && ann.text.includes(mostRecentReleaseLabel)
                         );
                     }} else {{
                         // For 3 and 6 month views, only show releases within the time range
@@ -582,7 +585,7 @@ def generate_report(ctx, output_dir):
                     
                     // For month views, only show most recent release
                     if(days <= 30) {{
-                        return ann.text && ann.text.includes(mostRecentRelease);
+                        return mostRecentReleaseLabel && ann.text && ann.text.includes(mostRecentReleaseLabel);
                     }} else {{
                         // For 3 and 6 month views, only show releases within the time range
                         return annDate >= cutoffDate;
@@ -776,7 +779,7 @@ def create_performance_plotly_data(df, normalized=False):
     detected_labels = {}
     if os.path.exists(detected_path):
         try:
-            with open(detected_path, 'r') as f:
+            with open(detected_path, 'r', encoding='utf-8') as f:
                 detected_labels = {item['revision']: item['label'] for item in json.load(f) if item['revision'] not in event_labels}
         except (ValueError, KeyError, TypeError, OSError) as e:
             print(f"Warning: could not load detected events from {detected_path}: {e}")
@@ -974,7 +977,7 @@ def create_queries_plotly_data(df):
     detected_labels = {}
     if os.path.exists(detected_path):
         try:
-            with open(detected_path, 'r') as f:
+            with open(detected_path, 'r', encoding='utf-8') as f:
                 detected_labels = {item['revision']: item['label'] for item in json.load(f) if item['revision'] not in event_labels}
         except (ValueError, KeyError, TypeError, OSError) as e:
             print(f"Warning: could not load detected events from {detected_path}: {e}")
@@ -1152,6 +1155,7 @@ def load_release_data(ctx):
         with open(labels_path, 'r') as f:
             releases_info = json.load(f)
             releases = [item['revision'] for item in releases_info]
+            release_labels = {item['revision']: item['label'] for item in releases_info}
 
             # Find the most recent release
             most_recent_release = None
@@ -1168,16 +1172,19 @@ def load_release_data(ctx):
                     """)
                     rev_ts_df = result.to_pandas()
                     rev_ts = dict(zip(rev_ts_df['git_revision'], rev_ts_df['ts']))
-                except:
+                except Exception as e:
+                    print(f"Warning: could not query revision timestamps for release selection: {e}")
                     rev_ts = {}
                 releases_in_data = [rev for rev in releases if rev in rev_ts]
                 if releases_in_data:
                     most_recent_release = max(releases_in_data, key=lambda rev: pd.to_datetime(rev_ts[rev], utc=True))
                 else:
                     most_recent_release = releases_info[0]['revision']
+            most_recent_release_label = release_labels.get(most_recent_release)
     else:
         releases = []
         most_recent_release = None
+        most_recent_release_label = None
 
     # Get most recent timestamp from data
     most_recent_query = """
@@ -1196,7 +1203,8 @@ def load_release_data(ctx):
     return {
         "releases": releases,
         "mostRecent": most_recent_timestamp,
-        "mostRecentRelease": most_recent_release
+        "mostRecentRelease": most_recent_release,
+        "mostRecentReleaseLabel": most_recent_release_label
     }
 
 
