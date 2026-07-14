@@ -1,0 +1,95 @@
+# =============================================================================
+# EXAMPLE ONLY - NOT INSTALLED BY DEFAULT. READ THIS ENTIRE BLOCK BEFORE USING.
+#
+# !!! SECURITY WARNING: SELF-HOSTED RUNNERS ON PUBLIC REPOSITORIES !!!
+#
+# A self-hosted runner executes whatever the triggering workflow tells it to.
+# On a PUBLIC repository, workflows triggered by forks (pull_request /
+# pull_request_target) would let ANYONE on the internet run arbitrary code on
+# your benchmark machine - stealing credentials, mining, pivoting into your
+# network. GitHub's own documentation recommends against self-hosted runners
+# on public repos for exactly this reason.
+#
+# If you use this file anyway, keep ALL of these mitigations:
+#   * Triggers stay `schedule` + `workflow_dispatch` ONLY. NEVER add
+#     pull_request or pull_request_target to this file.
+#   * Register the runner in a dedicated runner GROUP restricted to this one
+#     repository (org Settings -> Actions -> Runner groups), with a unique
+#     label (`benchmark`) so no other workflow can land on it.
+#   * Repo Settings -> Actions -> "Fork pull request workflows": require
+#     approval for ALL outside collaborators.
+#   * Run the runner as an unprivileged user; keep no secrets on the box
+#     beyond (optionally) a narrowly-scoped push token for publishing results.
+#   * Note: GitHub disables `schedule` workflows after ~60 days of repo
+#     inactivity; workflow_dispatch remains for manual re-arming.
+#
+# RECOMMENDED ALTERNATIVE (per maintainer preference): plain cron on the
+# benchmark box - see nightly/crontab.example - or the systemd timer in
+# nightly/systemd/. Those need no GitHub-side attack surface at all. This
+# file exists only for teams already invested in Actions dashboards.
+#
+# To use: copy to .github/workflows/nightly-benchmarks.yml (this file is NOT
+# picked up by GitHub where it sits now - that is intentional).
+# =============================================================================
+
+name: nightly-benchmarks (self-hosted example)
+
+# schedule + manual dispatch ONLY - see the security warning above.
+on:
+  schedule:
+    # 02:17 UTC daily; offset from the top of the hour to dodge GitHub's
+    # scheduler congestion. Keep roughly in sync with crontab.example.
+    - cron: "17 2 * * *"
+  workflow_dispatch: {}
+
+# Least privilege: the run itself only needs to read the repo. If you enable
+# the commented-out publish step below, change to `contents: write`.
+permissions:
+  contents: read
+
+# Never let two benchmark runs race on the same box (nightly.sh's flock would
+# make the second a no-op anyway; this keeps the Actions UI honest too).
+concurrency:
+  group: nightly-benchmarks
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    # Dedicated, labeled machine only - see runner-group mitigation above.
+    runs-on: [self-hosted, benchmark]
+    timeout-minutes: 720
+    steps:
+      - name: Check out the benchmarking harness
+        uses: actions/checkout@v4
+        with:
+          # CRITICAL on a persistent self-hosted runner: checkout's default
+          # clean (git clean -ffdx + git reset --hard) would wipe the previous
+          # night's uncommitted results/ CSVs and any caches in the workspace.
+          # You MUST either enable publishing (publish.enabled in
+          # nightly/config.json, so each night's results are committed before
+          # the next run) or keep `clean: false` here - otherwise every
+          # night's results are destroyed by the next run's checkout.
+          clean: false
+
+      - name: Run the nightly pipeline
+        env:
+          # actions/checkout already placed the workspace at the desired
+          # revision; a `git pull --rebase` inside the runner workspace would
+          # fight with it, so tell nightly.sh to skip its pull.
+          NIGHTLY_NO_PULL: "1"
+        run: ./nightly/nightly.sh
+
+      # --- Committing results back (optional) --------------------------------
+      # The recommended publishing mechanism is nightly.py's config-gated
+      # publish step (`publish.enabled: true` in nightly/config.json), which
+      # commits and pushes results/, docs/ and nightly/out/ itself. If you
+      # would rather do it in the workflow, uncomment the step below AND set
+      # `permissions: contents: write` above.
+      #
+      # - name: Commit and push results
+      #   run: |
+      #     git config user.name "benchmark-bot"
+      #     git config user.email "benchmark-bot@users.noreply.github.com"
+      #     git add results docs nightly/out
+      #     git commit -m "nightly: $(date -u +%F) results" || echo "nothing to commit"
+      #     git push
