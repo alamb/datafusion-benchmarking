@@ -20,7 +20,13 @@ wait
 #DATAFUSION_DIR=datafusion3 ./build_datafusion_cli.sh 53.0.0-rc3 &
 wait
 
-DATAFUSION_DIR=datafusion ./build_datafusion_cli.sh 53.1.0 &
-DATAFUSION_DIR=datafusion2 ./build_datafusion_cli.sh branch-54 &
+DATAFUSION_DIR=datafusion ./build_datafusion_cli.sh 53.0.0 &
+DATAFUSION_DIR=datafusion1 ./build_datafusion_cli.sh 53.1.0 &
+DATAFUSION_DIR=datafusion2 ./build_datafusion_cli.sh 54.0.0 &
+wait
+
+DATAFUSION_DIR=datafusion ./build_datafusion_cli.sh 54.1.0 &
+DATAFUSION_DIR=datafusion2 ./build_datafusion_cli.sh 1d000c221b  &
+
 
 wait
