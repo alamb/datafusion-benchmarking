@@ -37,6 +37,7 @@ echo "Building datafusion-cli in ${DATAFUSION_DIR} at rev: $REV"
 
 pushd "$DATAFUSION_DIR" || exit 1
 git stash
+git remote add apache git@github.com:apache/datafusion.git || true
 git fetch -p apache || true
 git fetch -p origin || true
 git clean -f -d

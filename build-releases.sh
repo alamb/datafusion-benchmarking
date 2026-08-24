@@ -25,5 +25,5 @@ DATAFUSION_DIR=datafusion2 ./build_datafusion_cli.sh 54.0.0 &
 wait
 
 DATAFUSION_DIR=datafusion ./build_datafusion_cli.sh 54.1.0 &
-DATAFUSION_DIR=datafusion2 ./build_datafusion_cli.sh 041a71671c  &
+DATAFUSION_DIR=datafusion1 ./build_datafusion_cli.sh 55.0.0  &
 wait
