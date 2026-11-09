@@ -635,6 +635,11 @@ async fn create_k8s_job(
         env.push(env_var(k, v));
     }
 
+    // Set after the shared env block so a trigger cannot replace its own quote.
+    if let Some(body) = &job.trigger_comment {
+        env.push(env_var("TRIGGER_COMMENT", body.clone()));
+    }
+
     // Also pass the shared block as a JSON map. The pod already has these set
     // individually (above); the map lets the runner report them in PR comments
     // without having to guess which of its env vars came from the trigger.
@@ -901,6 +906,7 @@ mod tests {
 
     fn test_job() -> BenchmarkJob {
         BenchmarkJob {
+            trigger_comment: None,
             id: 1,
             comment_id: 123,
             repo: "apache/datafusion".to_string(),

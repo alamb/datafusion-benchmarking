@@ -3,9 +3,10 @@
 //! Result comments link back to the triggering comment, but the link alone
 //! doesn't say what the run actually did: one trigger comment fans out into one
 //! job (and one pod) per benchmark name, and a bare `run benchmarks` expands to
-//! the repo's default suite. So instead of quoting the trigger comment
-//! verbatim, these helpers re-render *this* run's configuration using the same
-//! YAML syntax the trigger accepts — a copy-pasteable reproduction of the run.
+//! the repo's default suite. So these helpers re-render *this* run's
+//! configuration using the same YAML syntax the trigger accepts. That block is
+//! a copy-pasteable reproduction of the run. A second block quotes the raw
+//! trigger comment, so readers also see exactly what was asked for.
 
 use std::collections::HashMap;
 
@@ -49,7 +50,7 @@ pub fn config_block(config: &RunnerConfig, bench_names: &str) -> String {
          ```yaml\n\
          {}\n\
          ```\n\n\
-         </details>\n\n",
+         </details>\n\n{}",
         if config.shard.count() > 1 {
             format!(
                 "**Shard {}/{}** · assignment `{}`\n\n",
@@ -60,7 +61,31 @@ pub fn config_block(config: &RunnerConfig, bench_names: &str) -> String {
         } else {
             String::new()
         },
-        config_yaml(config, bench_names)
+        config_yaml(config, bench_names),
+        trigger_comment_block(config.trigger_comment.as_deref()),
+    )
+}
+
+/// Longest trigger comment quoted in full. Longer comments are cut so the
+/// quote cannot push a result comment past GitHub's size limit.
+const MAX_TRIGGER_QUOTE_CHARS: usize = 4000;
+
+/// A collapsed `<details>` block quoting the raw trigger comment, or an empty
+/// string when the body is unknown.
+///
+/// The body goes in a code fence, not a `>` quote. In a fence GitHub renders
+/// no markdown and sends no `@mention` notifications.
+pub fn trigger_comment_block(body: Option<&str>) -> String {
+    let Some(body) = body.map(str::trim).filter(|b| !b.is_empty()) else {
+        return String::new();
+    };
+    let mut text: String = body.chars().take(MAX_TRIGGER_QUOTE_CHARS).collect();
+    if body.chars().count() > MAX_TRIGGER_QUOTE_CHARS {
+        text.push_str("\n… (truncated)");
+    }
+    format!(
+        "<details><summary>Trigger comment</summary>\n\n{}\n\n</details>\n\n",
+        crate::criterion_report::fenced(&text, "text")
     )
 }
 
@@ -172,6 +197,7 @@ mod tests {
 
     fn config() -> RunnerConfig {
         RunnerConfig {
+            trigger_comment: None,
             pr_url: "https://github.com/apache/datafusion/pull/42".into(),
             comment_id: "100".into(),
             comment_url: "https://github.com/apache/datafusion/pull/42#issuecomment-100".into(),
@@ -353,6 +379,39 @@ mod tests {
         let m = yaml.find("MMM").unwrap();
         let z = yaml.find("ZZZ").unwrap();
         assert!(a < m && m < z);
+    }
+
+    #[test]
+    fn trigger_comment_is_fenced_in_its_own_block() {
+        let mut cfg = config();
+        cfg.trigger_comment = Some("run benchmark tpch\nenv:\n  BENCH_FILTER: q1 @someone".into());
+        let block = config_block(&cfg, "tpch");
+        assert!(block.ends_with(
+            "<details><summary>Trigger comment</summary>\n\n\
+             ```text\nrun benchmark tpch\nenv:\n  BENCH_FILTER: q1 @someone\n```\n\n\
+             </details>\n\n"
+        ));
+    }
+
+    #[test]
+    fn missing_or_blank_trigger_comment_renders_nothing() {
+        assert_eq!(trigger_comment_block(None), "");
+        assert_eq!(trigger_comment_block(Some("  \n ")), "");
+    }
+
+    #[test]
+    fn trigger_comment_with_backticks_gets_a_longer_fence() {
+        let block = trigger_comment_block(Some("```\nrun benchmarks\n```"));
+        assert!(block.contains("````text\n```\nrun benchmarks\n```\n````"));
+    }
+
+    #[test]
+    fn long_trigger_comment_is_truncated() {
+        let body = "x".repeat(MAX_TRIGGER_QUOTE_CHARS + 10);
+        let block = trigger_comment_block(Some(&body));
+        let expected = format!("{}\n… (truncated)", "x".repeat(MAX_TRIGGER_QUOTE_CHARS));
+        assert!(block.contains(&expected));
+        assert!(!block.contains(&"x".repeat(MAX_TRIGGER_QUOTE_CHARS + 1)));
     }
 
     #[test]

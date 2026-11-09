@@ -32,6 +32,7 @@ pub(crate) async fn request(
     for name in &names {
         for index in 0..count {
             jobs.push(JobInsert {
+                trigger_comment: None,
                 comment_id,
                 repo: "apache/arrow-rs",
                 pr_number: 42,
@@ -280,6 +281,7 @@ async fn direct_arrow_reports_use_the_shared_formatter_without_a_controller() {
     let (gh, comments, gists, server) = github_with_gists().await;
     let poster = CommentPoster::Direct(gh);
     let mut config = RunnerConfig {
+        trigger_comment: None,
         pr_url: "https://github.com/apache/arrow-rs/pull/42".into(),
         comment_id: "123".into(),
         comment_url: "https://github.com/apache/arrow-rs/pull/42#issuecomment-123".into(),
@@ -504,7 +506,13 @@ async fn gist_migration_upgrades_schema_five_without_reposting_completed_reports
     let mut deployed = sqlx::migrate!("./migrations");
     deployed.migrations.to_mut().retain(|m| m.version <= 5);
     deployed.run(&pool).await.unwrap();
-    let jobs = request(&pool, 305, 1, &["target"]).await;
+    // Raw SQL, because `db::enqueue_jobs` writes columns that schema 5 lacks.
+    let jobs = legacy_request(&pool, 305, 1, &["target"], "arrow_criterion").await;
+    sqlx::query("INSERT INTO sharded_runs (comment_id, benchmarks) VALUES (305, ?)")
+        .bind(&jobs[0].benchmarks)
+        .execute(&pool)
+        .await
+        .unwrap();
     let data = result(&jobs[0]);
     store_result(&pool, &jobs[0], &data).await.unwrap();
     db::update_job_status(&pool, jobs[0].id, JobStatus::Completed, None, None)
@@ -865,7 +873,7 @@ async fn migration_from_deployed_schema_preserves_jobs_and_reports_only_outstand
                 .fetch_all(&pool)
                 .await
                 .unwrap();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7]);
         let after: Vec<JobState> = sqlx::query_as(job_state).fetch_all(&pool).await.unwrap();
         assert_eq!(before, after);
         let jobs: Vec<BenchmarkJob> = sqlx::query_as("SELECT * FROM benchmark_jobs")

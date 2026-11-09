@@ -96,6 +96,8 @@ pub struct RunnerConfig {
     pub resources: PodResources,
     pub shard: Shard,
     pub frozen_sources: Option<FrozenSources>,
+    /// Raw body of the trigger comment, quoted in result comments.
+    pub trigger_comment: Option<String>,
 }
 
 impl RunnerConfig {
@@ -149,6 +151,7 @@ impl RunnerConfig {
             baseline_ref: std::env::var("BASELINE_REF").ok(),
             changed_ref: std::env::var("CHANGED_REF").ok(),
             runner_repo_url: std::env::var("RUNNER_REPO_URL").ok(),
+            trigger_comment: std::env::var("TRIGGER_COMMENT").ok(),
             resources: PodResources {
                 cpu: std::env::var("REQUESTED_CPU").ok(),
                 memory: std::env::var("REQUESTED_MEMORY").ok(),

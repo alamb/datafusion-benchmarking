@@ -72,8 +72,8 @@ pub async fn insert_job<'e, E: sqlx::Executor<'e, Database = sqlx::Sqlite>>(
          (comment_id, repo, pr_number, pr_url, login, benchmarks, env_vars, \
           baseline_env_vars, changed_env_vars, baseline_ref, changed_ref, job_type, \
           cpu_request, memory_request, cpu_arch, effective_shards, shard_index, \
-          assignment_version, resolved_source_json) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          assignment_version, resolved_source_json, trigger_comment) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(job.comment_id)
     .bind(job.repo)
@@ -94,6 +94,7 @@ pub async fn insert_job<'e, E: sqlx::Executor<'e, Database = sqlx::Sqlite>>(
     .bind(job.shard.index)
     .bind((job.shard.count() > 1).then_some(crate::sharding::ASSIGNMENT_VERSION))
     .bind(job.resolved_source_json)
+    .bind(job.trigger_comment)
     .execute(executor)
     .await?;
     Ok(result.last_insert_rowid())
@@ -329,6 +330,7 @@ mod tests {
 
     fn test_job(comment_id: i64) -> JobInsert<'static> {
         JobInsert {
+            trigger_comment: None,
             comment_id,
             repo: "apache/datafusion",
             pr_number: 42,

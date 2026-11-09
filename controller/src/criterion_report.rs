@@ -37,6 +37,7 @@ pub struct ExecutionContext {
     baseline_ref: Option<String>,
     changed_ref: Option<String>,
     resources: PodResources,
+    trigger_comment: Option<String>,
 }
 
 impl ExecutionContext {
@@ -63,6 +64,7 @@ impl ExecutionContext {
                 memory: job.memory_request.clone(),
                 arch: job.cpu_arch.clone(),
             },
+            trigger_comment: job.trigger_comment.clone(),
         })
     }
 
@@ -79,6 +81,7 @@ impl ExecutionContext {
             baseline_ref: config.baseline_ref.clone(),
             changed_ref: config.changed_ref.clone(),
             resources: config.resources.clone(),
+            trigger_comment: config.trigger_comment.clone(),
         }
     }
 
@@ -136,10 +139,13 @@ impl ExecutionContext {
             self.target,
             serde_yaml::to_string(&yaml)?
         );
+        let quote = crate::runner::trigger::trigger_comment_block(self.trigger_comment.as_deref());
         Ok(format!(
-            "{comparison}\n\n<details><summary>Run configuration</summary>\n\n{}\n\n</details>",
-            fenced(&yaml, "yaml")
-        ))
+            "{comparison}\n\n<details><summary>Run configuration</summary>\n\n{}\n\n</details>\n\n{quote}",
+            fenced(&yaml, "yaml"),
+        )
+        .trim_end()
+        .to_string())
     }
 }
 
@@ -364,7 +370,7 @@ fn escape(text: &str) -> String {
         .collect()
 }
 
-fn fenced(text: &str, language: &str) -> String {
+pub(crate) fn fenced(text: &str, language: &str) -> String {
     let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let fence = "`".repeat(3.max(longest + 1));
     format!("{fence}{language}\n{text}\n{fence}")

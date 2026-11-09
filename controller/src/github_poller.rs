@@ -364,6 +364,7 @@ async fn process_comment(
                     index,
                 },
                 resolved_source_json: resolved_sources.as_deref(),
+                trigger_comment: comment.body.as_deref(),
             });
         }
     }
@@ -767,6 +768,7 @@ mod tests {
             db::insert_job(
                 &pool,
                 &JobInsert {
+                    trigger_comment: None,
                     comment_id: id,
                     repo: "test/repo",
                     pr_number: 42,
@@ -828,6 +830,7 @@ mod tests {
 
     fn test_job() -> BenchmarkJob {
         BenchmarkJob {
+            trigger_comment: None,
             id: 1,
             comment_id: 100,
             repo: "apache/datafusion".to_string(),

@@ -29,6 +29,8 @@ pub struct JobInsert<'a> {
     pub resources: &'a PodResources,
     pub shard: Shard,
     pub resolved_source_json: Option<&'a str>,
+    /// Raw body of the trigger comment.
+    pub trigger_comment: Option<&'a str>,
 }
 
 /// SQLite row for a benchmark job. Status follows this state machine:
@@ -71,6 +73,11 @@ pub struct BenchmarkJob {
     pub shard_index: u32,
     pub assignment_version: Option<String>,
     pub resolved_source_json: Option<String>,
+    /// Raw body of the trigger comment. `None` for rows queued before
+    /// migration 007. The default lets migration tests decode rows from older
+    /// schemas.
+    #[sqlx(default)]
+    pub trigger_comment: Option<String>,
 }
 
 impl BenchmarkJob {
