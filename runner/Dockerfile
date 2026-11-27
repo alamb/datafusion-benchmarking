@@ -69,6 +69,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
+# bench.sh data generation for sort_pushdown_inexact* imports pyarrow.
+RUN uv pip install --system --break-system-packages pyarrow
+
 # Copy pre-built CLI tools from builder stages
 COPY --from=tools /usr/local/cargo/bin/critcmp /usr/local/cargo/bin/critcmp
 COPY --from=tools /usr/local/cargo/bin/tpchgen-cli /usr/local/cargo/bin/tpchgen-cli

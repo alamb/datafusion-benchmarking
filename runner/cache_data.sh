@@ -16,6 +16,11 @@ if bench-cache download "$BENCH" --bucket "$BUCKET" --data-dir "$BENCH_DIR/data"
   echo "Cache HIT: $BENCH"
 else
   echo "Cache MISS: $BENCH"
-  cd "$BENCH_DIR" && ./bench.sh data "$BENCH" || true
-  bench-cache upload "$BENCH" --bucket "$BUCKET" --data-dir "$BENCH_DIR/data" || true
+  # Upload only complete data. A failed generation must not leave a cache
+  # marker, or every later run would get a "hit" on incomplete data.
+  if (cd "$BENCH_DIR" && ./bench.sh data "$BENCH"); then
+    bench-cache upload "$BENCH" --bucket "$BUCKET" --data-dir "$BENCH_DIR/data" || true
+  else
+    echo "Data generation failed for $BENCH; skipping cache upload" >&2
+  fi
 fi
